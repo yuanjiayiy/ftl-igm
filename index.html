@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="description"
+        content="Few-Shot Task Learning through Inverse Generative Modeling.">
+  <meta name="keywords" content="few-shot learning, inverse generative modeling">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FTL-IGM: Few-Shot Task Learning through Inverse Generative Modeling</title>
+
+  <!-- Global site tag (gtag.js) - Google Analytics -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-PYVRSFMDRL"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+
+    function gtag() {
+      dataLayer.push(arguments);
+    }
+
+    gtag('js', new Date());
+
+    gtag('config', 'G-PYVRSFMDRL');
+  </script>
+
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro"
+        rel="stylesheet">
+
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-carousel.min.css">
+  <link rel="stylesheet" href="./static/css/bulma-slider.min.css">
+  <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  <link rel="stylesheet" href="./static/css/index.css">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="./static/js/fontawesome.all.min.js"></script>
+  <script src="./static/js/bulma-carousel.min.js"></script>
+  <script src="./static/js/bulma-slider.min.js"></script>
+  <script src="./static/js/index.js"></script>
+</head>
+<body>
+
+
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop">
+      <div class="columns is-centered">
+        <div class="column has-text-centered">
+          <h1 class="title is-1 publication-title">Few-Shot Learning through Inverse Generative Modeling</h1>
+          <div class="is-size-5 publication-authors">
+            <span class="author-block">
+              <a href="https://avivne.github.io">Aviv Netanyahu</a><sup>1</sup>,</span>
+            <span class="author-block">
+              <a href="https://yilundu.github.io">Yilun Du</a><sup>1</sup>,</span>
+            <span class="author-block">
+              <a href="https://tonibronars.github.io">Antonia Bronars</a><sup>1</sup>,
+            </span>
+            <span class="author-block">
+              <a href="https://jyopari.github.io">Jyothish Pari</a><sup>1</sup>,
+            </span>
+            <span class="author-block">
+              <a href="http://cocosci.mit.edu/josh">Joshua Tenenbaum</a><sup>1</sup>,
+            </span>
+            <span class="author-block">
+              <a href="https://www.tshu.io">Tianmin Shu</a><sup>1,2</sup>,
+            </span>
+            <span class="author-block">
+              <a href="https://people.csail.mit.edu/pulkitag/">Pulkit Agrawal</a><sup>1</sup>
+            </span>
+          </div>
+
+          <div class="is-size-5 publication-authors">
+            <span class="author-block"><sup>1</sup>MIT,</span>
+            <span class="author-block"><sup>2</sup>JHU</span>
+          </div>
+
+          <h2 class="publication name" style="font-size: 28px;">NeurIPS 2024</h2>
+
+          <div class="column has-text-centered">
+            <div class="publication-links">
+              <span class="link-block">
+                <a href=""
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="ai ai-arxiv"></i>
+                  </span>
+                  <span>arXiv</span>
+                </a>
+              </span>
+              <!-- Video Link. -->
+              <span class="link-block">
+                <a href=""
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fab fa-youtube"></i>
+                  </span>
+                  <span>Video</span>
+                </a>
+              </span>
+              <!-- Code Link. -->
+              <span class="link-block">
+                <a href="https://github.com/avivne/ftl-igm/tree/main/code"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fab fa-github"></i>
+                  </span>
+                  <span>Code</span>
+                  </a>
+              </span>
+              <!-- Dataset Link. -->
+              <span class="link-block">
+                <a href=""
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="far fa-images"></i>
+                  </span>
+                  <span>Data</span>
+                  </a>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- <section class="hero teaser">
+  <div class="container is-max-desktop">
+    <div class="hero-body">
+      <video id="teaser" autoplay muted playsinline height="100%">
+        <source src="./static/videos/manipulation.mov" type="video/mp4">
+      </video>
+      <h2 class="subtitle has-text-centered"><br>
+        <span class="dnerf">FTL-IGM</span> learns to generate behavior conditioned on task representations. 
+        Then, it learns new task representations from few demonstrations.
+      </h2>
+    </div>
+  </div>
+</section>
+<script>
+  const video = document.getElementById("teaser");
+  const startTime = 1;  // Start at 3 seconds
+  const endTime = 18;   // End at 14 seconds (excluding the last second)
+  video.currentTime = startTime; // Ensure the video starts at the start time
+  video.addEventListener("timeupdate", () => {
+    // Loop the video when it reaches the end time
+    if (video.currentTime >= endTime) {
+      video.currentTime = startTime;
+      video.play();
+    }
+  });
+</script> -->
+
+
+
+<style>
+  .gif-container {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .gif {
+    flex-basis: calc(26% - 20px);
+    margin: 5px;
+  }
+  .caption {
+    text-align: center;
+  }
+  .gif img {
+    width: 100%;
+    height: auto;
+  }
+/*  */
+  .gif-container2 {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  }
+  .gif2 {
+    margin-bottom: 0.5rem;
+  }
+  .gif-right {
+    margin-left: 0.5rem;
+  }
+  .gif p.caption {
+    margin: 0;
+  }
+  .gif-stack {
+    display: flex;
+    flex-direction: column;
+    margin-right: 0.5rem;
+  }
+</style>
+
+<div class="container is-max-desktop">
+  <!-- Train -->
+  <h2 class="subtitle has-text-centered"><br>
+    Training tasks (214 demos)
+  </h2>
+  <div class="gif-container">
+    <div class="gif">
+      <img src="./static/videos/robot/push.gif" loop>
+      <p class="caption">push on surface (2x)</p>
+    </div>
+    <div class="gif">
+      <img src="./static/videos/robot/push_around.gif" loop>
+      <p class="caption">push around bowl (2x)</p>
+    </div>
+    <div class="gif">
+      <img src="./static/videos/robot/table_pick_and_place.gif" loop>
+      <p class="caption">pick-and-place on table (2x)</p>
+    </div>
+    <div class="gif">
+      <img src="./static/videos/robot/green_pick_and_place.gif" loop>
+      <p class="caption">pick-and-place on book (2x)</p>
+    </div>
+  </div>
+  <!-- Test -->
+  <h2 class="subtitle has-text-centered"><br>
+    Test task (10 demos)
+  </h2>
+  <div class="gif-container">
+    <div class="gif">
+      <img src="./static/videos/robot/book_push.gif" loop>
+      <p class="caption">?</p>
+    </div>
+  </div>
+  <h2 class="subtitle has-text-centered"><br>
+    <span class="dnerf">FTL-IGM</span> learns to generate behavior conditioned on task representations (text embeddings of task descriptions). 
+    Then, it learns <b>new task</b> latent representations from few state-based demonstrations (in this case, videos).
+  </h2>
+</div>
+
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <!-- Abstract. -->
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Abstract</h2>
+        <div class="content has-text-justified">
+          <p>
+            Learning the intents of an agent, defined by its goals or motion style, is often extremely challenging from just a few examples. 
+            We refer to this problem as task concept learning, and present our approach, Few-Shot Task Learning through Inverse Generative Modeling (FTL-IGM), which learns new task concepts by leveraging invertible neural generative models. 
+            The core idea is to pretrain a generative model on a set of basic concepts and their demonstrations. 
+            Then, given a few demonstrations of a new concept (such as a new goal or a new action), our method learns the underlying concepts through backpropagation without updating the model weights, thanks to the invertibility of the generative model. 
+            We evaluate our method in five domains -- object rearrangement, goal-oriented navigation, motion caption of human actions, autonomous driving and real-world table-top manipulation. 
+            Our experimental results demonstrate that via the pretrained generative model, we successfully learn novel concepts and generate agent plans or motion corresponding to these concepts in (1) unseen environments and (2) in composition with training concepts.
+          </p>
+        </div>
+      </div>
+    </div>
+    <!--/ Abstract. -->
+
+    <!-- Paper video. -->
+    <!-- <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Video</h2>
+        <div class="publication-video">
+          <iframe src="https://www.youtube.com/embed/MrKrnHhk8IA?rel=0&amp;showinfo=0"
+                  frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        </div>
+      </div>
+    </div> -->
+    <!--/ Paper video. -->
+  </div>
+</section>
+
+
+<section class="section">
+  <div class="container is-max-desktop">
+    <!-- Robot. -->
+    <div class="columns is-centered">
+      <div class="column">
+        <h2 class="title is-3"> Real-World Table-Top Manipulation</h2>
+        <div class="columns is-centered">
+          <div class="column content">
+            <p>
+              We collect demonstrations with a Franka Research 3 robot via teleop.
+              We generate training and test pushing with our model conditioned on different representations.
+            </p>
+            <div class="columns is-multiline">
+              <div class="column is-one-third">
+                <div class="gif">
+                  <img src="./static/videos/robot/train_succ.gif" loop>
+                  <p class="caption"><b>training</b> task: push on surface, representation: training push on surface (2x)</p>
+                </div>
+              </div>
+              <div class="column is-one-third">
+                <div class="gif">
+                  <img src="./static/videos/robot/test_succ.gif" loop>
+                  <p class="caption"><b>test</b> task: push on book, representation: test inferred representation (4x)</p>
+                </div>
+              </div>
+              <div class="column is-one-third">
+                <div class="gif">
+                  <img src="./static/videos/robot/test_baseline.gif" loop>
+                  <p class="caption"><b>test baseline</b> task: push on book, representation: training push on surface (4x)</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!--/ Robot. -->
+    
+    <!-- Driving. -->
+    <div class="columns is-centered">
+      <div class="column">
+        <h2 class="title is-3">Autonomous Driving</h2>
+        <div class="columns is-centered">
+          <div class="column content">
+            <p>
+              In the highway environment, the green vehicle is controlled by the model, blue vehicles are controlled by a separate controller, red indicates collision. In all scenarios the controlled vehicle must maintain a high speed and avoid collisions. In the highway scenarios it must stay on the rightmost lanes, in exit make the exit, in merge allow a vehicle to merge, in intersection make a left turn and in roundabout take the second exit.
+            </p>
+          </div>
+
+        </div>
+      </div>
+    </div>
+    <div class="container is-max-desktop">
+      <!-- Train -->
+      <h2 class="subtitle has-text-centered"><br>
+        Training tasks (200 demos)
+      </h2>
+      <div class="gif-container2">
+        <div class="gif-stack">
+          <div class="gif2">
+            <img src="./static/videos/driving/highway.gif" loop>
+            <p class="caption">highway</p>
+          </div>
+          <div class="gif2">
+            <img src="./static/videos/driving/exit.gif" loop>
+            <p class="caption">exit</p>
+          </div>
+          <div class="gif2">
+            <img src="./static/videos/driving/merge.gif" loop>
+            <p class="caption">merge</p>
+          </div>
+        </div>
+        <div class="gif-right">
+          <img src="./static/videos/driving/intersection.gif" loop>
+          <p class="caption">intersection</p>
+        </div>
+      </div>
+      <!-- Test -->
+      <h2 class="subtitle has-text-centered"><br>
+        Test task (5 demos)
+      </h2>
+      <div class="gif-container">
+        <div class="gif">
+          <img src="./static/videos/driving/bc.gif" loop>
+          <p class="caption">BC</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/driving/vae.gif" loop>
+          <p class="caption">VAE</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/driving/in_context.gif" loop>
+          <p class="caption">In-Context</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/driving/ours.gif" loop>
+          <p class="caption">Ours</p>
+        </div>        
+      </div>
+    </div>
+    <!--/ Driving. --> 
+    
+    <br>
+    <!-- MoCap. -->
+    <div class="columns is-centered">
+      <div class="column">
+        <h2 class="title is-3">Motion Capture</h2>
+        <div class="columns is-centered">
+          <div class="column content">
+            <p>
+              The CMU Motion Capture Database is collected from real humans performing actions.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="container is-max-desktop">
+      <!-- Train -->
+      <h2 class="subtitle has-text-centered"><br>
+        Training tasks (2210 demos)
+      </h2>
+      <div class="gif-container">
+        <div class="gif">
+          <img src="./static/videos/mocap/ours_train_eval/walk.gif" loop>
+          <p class="caption">walk</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/mocap/ours_train_eval/run.gif" loop>
+          <p class="caption">run</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/mocap/ours_train_eval/march.gif" loop>
+          <p class="caption">march</p>
+        </div>
+      </div>
+      <!-- Test -->
+      <h2 class="subtitle has-text-centered"><br>
+        Test tasks (3 demos)
+      </h2>
+      <div class="column content">
+        <p>
+          jumping jacks
+        </p>
+      </div>      
+      <div class="gif-container" style="display: flex;">
+        <div class="gif" style="flex: 1;">
+          <img src="./static/videos/mocap/jumping_jacks_new_init/bc.gif" loop>
+          <p class="caption">BC</p>
+        </div>
+        <div class="gif" style="flex: 1;">
+          <img src="./static/videos/mocap/jumping_jacks_new_init/vae.gif" loop>
+          <p class="caption">VAE</p>
+        </div>
+        <div class="gif" style="flex: 1;">
+          <img src="./static/videos/mocap/jumping_jacks_new_init/in_context.gif" loop>
+          <p class="caption">In-Context</p>
+        </div>
+        <div class="gif" style="flex: 1;">
+          <img src="./static/videos/mocap/jumping_jacks_new_init/language.gif" loop>
+          <p class="caption">Language</p>
+        </div>    
+        <div class="gif" style="flex: 1;">
+          <img src="./static/videos/mocap/jumping_jacks_new_init/ours.gif" loop>
+          <p class="caption">Ours</p>
+        </div>
+        <div class="gif" style="flex: 1;">
+          <img src="./static/videos/mocap/mocap_ours_compos/vid_jumping_jacks.gif" loop>
+          <p class="caption">Demo</p>
+        </div>          
+      </div>
+      <!-- Test2 -->
+      <br><br>
+      <div class="column content">
+        <p>
+          breaststroke
+        </p>
+      </div>  
+      <div class="gif-container" style="display: flex;">
+        <div class="gif" style="flex: 1;">
+          <img src="./static/videos/mocap/swimming_new_init/bc.gif" loop>
+          <p class="caption">BC</p>
+        </div>
+        <div class="gif" style="flex: 1;">
+          <img src="./static/videos/mocap/swimming_new_init/vae.gif" loop>
+          <p class="caption">VAE</p>
+        </div>
+        <div class="gif" style="flex: 1;">
+          <img src="./static/videos/mocap/swimming_new_init/in_context.gif" loop>
+          <p class="caption">In-Context</p>
+        </div>
+        <div class="gif" style="flex: 1;">
+          <img src="./static/videos/mocap/swimming_new_init/language.gif" loop>
+          <p class="caption">Language</p>
+        </div>    
+        <div class="gif" style="flex: 1;">
+          <img src="./static/videos/mocap/swimming_new_init/ours.gif" loop>
+          <p class="caption">Ours</p>
+        </div>
+        <div class="gif" style="flex: 1;">
+          <img src="./static/videos/mocap/swimming_new_init/swim_demo.gif" loop>
+          <p class="caption">Demo</p>
+        </div>          
+      </div>
+      <!-- Compos -->
+      <h2 class="subtitle has-text-centered"><br>
+        Learned New Concepts + Training Concepts Compositions
+      </h2> 
+      <div class="gif-container">
+        <div class="gif">
+          <img src="./static/videos/mocap/mocap_ours_compos/vid_walk.gif" loop>
+          <p class="caption">walk (demo)</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/mocap/mocap_ours_compos/vid_jump.gif" loop>
+          <p class="caption">jump (demo)</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/mocap/mocap_ours_compos/vid_march.gif" loop>
+          <p class="caption">march (demo)</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/mocap/mocap_ours_compos/vid_jumping_jacks.gif" loop>
+          <p class="caption">jumping jacks (demo)</p>
+        </div>    
+      </div> 
+      <div class="gif-container">
+        <div class="gif">
+          <img src="./static/videos/mocap/mocap_ours_compos/jumping_jacks_walk.gif" loop>
+          <p class="caption">jumping jacks + walk</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/mocap/mocap_ours_compos/jumping_jacks_Jump.gif" loop>
+          <p class="caption">jumping jacks + jump</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/mocap/mocap_ours_compos/jumping_jacks_Marching.gif" loop>
+          <p class="caption">jumping jacks + march</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/mocap/jumping_jacks_new_init/ours.gif" loop>
+          <p class="caption">jumping jacks (learned)</p>
+        </div>    
+      </div>   
+      <!-- Ablation -->
+      <h2 class="subtitle has-text-centered"><br>
+        Learning New Concepts as 1 Concept vs. Compositions of 2 Concepts
+      </h2>     
+      <div class="gif-container">
+        <div class="gif">
+          <img src="./static/videos/mocap/ablation_1cond/vid_jumping_jacks.gif" loop>
+          <p class="caption">jumping jacks 1 concept</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/mocap/jumping_jacks_new_init/ours.gif" loop>
+          <p class="caption">jumping jacks 2 concepts</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/mocap/ablation_1cond/vid_breast_stroke.gif" loop>
+          <p class="caption">breaststroke 1 concept</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/mocap/swimming_new_init/ours.gif" loop>
+          <p class="caption">breaststroke 2 concepts</p>
+        </div>    
+      </div>       
+    </div>       
+    <!-- MoCap. -->
+
+    <br>
+    <!-- Navigation. -->
+      <div class="columns is-centered">
+        <div class="column">
+          <h2 class="title is-3">Goal-Oriented Navigation</h2>
+          <div class="columns is-centered">
+            <div class="column content">
+              <p>
+                In the AGENT environment, an agent navigates to one of two targets based on their shape and/or color.
+              </p>
+            </div>
+  
+          </div>
+        </div>
+      </div>
+      <div class="container is-max-desktop">
+        <!-- Train -->
+        <h2 class="subtitle has-text-centered"><br>
+          Training tasks: target defined by single attribute, shape <b>or</b> color (900 demos)
+        </h2>
+        <div class="gif-container">
+          <div class="gif">
+            <img src="./static/videos/navigation/ours_train_red.gif" loop>
+            <p class="caption">go to red object</p>
+          </div>
+          <div class="gif">
+            <img src="./static/videos/navigation/ours_train_yellow.gif" loop>
+            <p class="caption">go to yellow object</p>
+          </div>
+          <div class="gif">
+            <img src="./static/videos/navigation/ours_train_cube.gif" loop>
+            <p class="caption">go to cube</p>
+          </div>
+          <div class="gif">
+            <img src="./static/videos/navigation/ours_train_bowl.gif" loop>
+            <p class="caption">go to bowl</p>
+          </div>
+        </div>
+        <!-- Test -->
+        <h2 class="subtitle has-text-centered"><br>
+          Test tasks: target defined by attribute compositions, shape <b>and</b> color (5 demos)
+        </h2>
+        <div class="gif-container">
+          <div class="gif">
+            <img src="./static/videos/navigation/bc_task3_10_fail.gif" loop>
+            <p class="caption">BC</p>
+          </div>
+          <div class="gif">
+            <img src="./static/videos/navigation/vae_task2_14_succnotopt.gif" loop>
+            <p class="caption">VAE</p>
+          </div>
+          <div class="gif">
+            <img src="./static/videos/navigation/in_context_task3_15_fail.gif" loop>
+            <p class="caption">In-Context</p>
+          </div>
+          <div class="gif">
+            <img src="./static/videos/navigation/ours_task1_0_succ.gif" loop>
+            <p class="caption">Ours</p>
+          </div>        
+        </div>
+      </div>      
+    <!-- Navigation. -->
+
+    <br>
+    <!-- Object Rearrangement. -->
+    <div class="columns is-centered">
+      <div class="column">
+        <h2 class="title is-3">Object Rearrangement</h2>
+        <div class="columns is-centered">
+          <div class="column content">
+            <p>
+              In the Object Rearrangement environment, three objects need to be positioned in a certain configuration that satisfies spatial relations between them.
+            </p>
+          </div>
+
+        </div>
+      </div>
+    </div>
+    <div class="container is-max-desktop">
+      <!-- Train -->
+      <h2 class="subtitle has-text-centered"><br>
+        Training tasks: single pairwise relations (11k demos)
+      </h2>
+      <div class="gif-container">
+        <div class="gif">
+          <img src="./static/videos/object/train1.png" loop>
+          <p class="caption">triangle above circle</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/object/train2.png" loop>
+          <p class="caption">circle above triangle</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/object/train3.png" loop>
+          <p class="caption">triangle right of circle</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/object/train4.png" loop>
+          <p class="caption">square above circle</p>
+        </div>
+      </div>
+      <!-- Test1 -->
+      <h2 class="subtitle has-text-centered"><br>
+        Test tasks: new concepts that are training concept compositions: two pairwise relations (5 demos)
+      </h2>
+      <div class="gif-container">
+        <div class="gif">
+          <img src="./static/videos/object/test1.png" loop>
+          <p class="caption">triangle right of square + circle above square</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/object/test2.png" loop>
+          <p class="caption">square right of triangle + circle above triangle</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/object/test3.png" loop>
+          <p class="caption">circle right of square + triangle above square</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/object/test4.png" loop>
+          <p class="caption">line: circle right of triangle + triangle right of square</p>
+        </div>        
+      </div>
+      <!-- Test2 -->
+      <h2 class="subtitle has-text-centered"><br>
+        Test tasks: new concepts that are not explicit training concept compositions in natural language symbolic space (5 demos)
+      </h2>
+      <div class="gif-container">
+        <div class="gif">
+          <img src="./static/videos/object/test5.png" loop>
+          <p class="caption">all objects on circle circumference of radius 1.67</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/object/test6.png" loop>
+          <p class="caption">square diagonal to triangle</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/object/test7.png" loop>
+          <p class="caption">triangle diagonal to square</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/object/test8.png" loop>
+          <p class="caption">circle diagonal to triangle</p>
+        </div>        
+      </div>  
+      <!-- Compos -->
+      <h2 class="subtitle has-text-centered"><br>
+        Generating a new concept (diagonal) composed with a training pairwise relation
+      </h2>
+      <div class="gif-container">
+        <div class="gif">
+          <img src="./static/videos/object/compos1.png" loop>
+          <p class="caption">square diagonal to triangle + circle above square</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/object/compos2.png" loop>
+          <p class="caption">square diagonal to triangle + circle above triangle</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/object/compos3.png" loop>
+          <p class="caption">square diagonal to triangle + circle right of triangle</p>
+        </div>
+        <div class="gif">
+          <img src="./static/videos/object/compos4.png" loop>
+          <p class="caption">square diagonal to triangle + triangle above circle</p>
+        </div>        
+      </div>          
+    </div>     
+    <!-- Object Rearrangement. -->
+
+    <br>
+    <!-- t-SNE. -->
+    <!-- TODO carousel different sized slides -->
+    <div class="columns is-centered">
+      <div class="column">
+        <h2 class="title is-3">t-SNE Analysis
+        </h2>
+        <div class="columns is-centered">
+          <div class="column content">
+            <p>
+              New concepts that are not explicit compositions in the natural language symbolic space of training concepts for Driving, MoCap and Object Rearrangement. Hover over data points to view which concept they represent.
+            </p>
+          </div>
+
+        </div>
+      </div>
+    </div>    
+    <!-- <div class="container is-max-desktop">
+      <div class="container">
+        <iframe src="./static/videos/tSNE/tsne_driving.html" frameborder="0" width="100%" height="500" style="background-color: transparent; border: none; outline: none;"></iframe>
+        <iframe src="./static/videos/tSNE/tsne_mocap.html" frameborder="0" width="100%" height="500" style="background-color: transparent; border: none; outline: none;"></iframe>
+        <iframe src="./static/videos/tSNE/tsne_shapes.html" frameborder="0" width="100%" height="500" style="background-color: transparent; border: none; outline: none;"></iframe>
+      </div>
+    </div> -->
+    <!-- t-SNE. -->
+
+
+
+
+    <!-- <!DOCTYPE html> -->
+    <!-- <html lang="en"> -->
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>t-SNE Visualization Carousel</title>
+        <style>
+            body, html {
+                margin: 0;
+                padding: 0;
+            }
+            .carousel-container {
+                width: 100%;
+                height: 80vh; /* Adjust this value as needed */
+                position: relative;
+                /* margin: 20px auto; */
+                overflow: hidden;
+            }
+            .carousel-slide {
+                display: none;
+                width: 100%;
+                height: 100%;
+                overflow: hidden; /* Allow scrolling within slides */
+            }
+            .carousel-slide iframe {
+                width: 100%;
+                border: none;
+                min-height: 100%; /* Ensure iframe is at least as tall as its container */
+            }
+            .prev, .next {
+                cursor: pointer;
+                position: absolute;
+                top: 50%;
+                width: auto;
+                padding: 16px;
+                margin-top: -22px;
+                color: white;
+                font-weight: bold;
+                font-size: 18px;
+                transition: 0.6s ease;
+                border-radius: 0 3px 3px 0;
+                user-select: none;
+                background-color: rgba(0,0,0,0.8);
+                z-index: 2;
+            }
+            .next {
+                right: 0;
+                border-radius: 3px 0 0 3px;
+            }
+            .prev:hover, .next:hover {
+                background-color: rgba(0,0,0,0.9);
+            }
+        </style>
+    </head>
+    <body>        
+        <div class="carousel-container">
+            <div class="carousel-slide">
+              <iframe src="./static/videos/tSNE/tsne_driving.html" title="t-SNE Driving Visualization" sandbox="allow-scripts allow-same-origin"></iframe>
+            </div>
+            <div class="carousel-slide">
+                <iframe src="./static/videos/tSNE/tsne_mocap.html" title="t-SNE MoCap Visualization" sandbox="allow-scripts allow-same-origin"></iframe>
+            </div>
+            <div class="carousel-slide">
+                <iframe src="./static/videos/tSNE/tsne_shapes.html" title="t-SNE Shapes Visualization" sandbox="allow-scripts allow-same-origin"></iframe>
+            </div>
+            
+            <a class="prev" onclick="changeSlide(-1)">&#10094;</a>
+            <a class="next" onclick="changeSlide(1)">&#10095;</a>
+        </div>
+        
+        <script>
+            let slideIndex = 1;
+            showSlides(slideIndex);
+    
+            function changeSlide(n) {
+                showSlides(slideIndex += n);
+            }
+    
+            function showSlides(n) {
+                let slides = document.getElementsByClassName("carousel-slide");
+                if (n > slides.length) {slideIndex = 1}
+                if (n < 1) {slideIndex = slides.length}
+                for (let i = 0; i < slides.length; i++) {
+                    slides[i].style.display = "none";
+                }
+                slides[slideIndex-1].style.display = "block";
+                resizeIframe(slides[slideIndex-1].querySelector('iframe'));
+            }
+    
+            function resizeIframe(iframe) {
+              if (!iframe) return;
+              
+              // Reset iframe height to 100% to get its natural height
+              iframe.style.height = '100%';
+              iframe.style.width = '100%';
+              
+              // Set iframe height to either its content height or container height, whichever is larger
+              let minHeight = iframe.clientHeight;
+              let contentHeight = iframe.offsetHeight;
+              iframe.style.height = Math.max(minHeight, contentHeight) + 'px';
+
+              // Set iframe width to its container width
+              let containerWidth = iframe.offsetWidth;
+              // console.log(iframe);
+              // console.log(containerWidth);
+              // console.log(contentHeight);
+              iframe.style.width = containerWidth + 'px';                
+          }
+    
+            window.addEventListener('resize', function() {
+                let currentSlide = document.querySelector('.carousel-slide[style="display: block;"]');
+                if (currentSlide) {
+                    resizeIframe(currentSlide.querySelector('iframe'));
+                }
+            });
+    
+            // Initialize iframes after they've loaded
+            document.querySelectorAll('.carousel-slide iframe').forEach(iframe => {
+                iframe.onload = function() {
+                    resizeIframe(this);
+                };
+            });
+        </script>
+    </body>
+    <!-- </html> -->
+    
+
+
+
+    <!-- Concurrent Work. -->
+    <div class="columns is-centered">
+      <div class="column is-full-width">
+        <h2 class="title is-3">Related Links</h2>
+
+        <div class="content has-text-justified">
+          <p>
+            There's excellent related work in computer vision and decision making.
+          </p>
+          <p>
+            <a href="https://arxiv.org/abs/2208.01618">An Image is Worth One Word: Personalizing Text-to-Image Generation 
+              using Textual Inversion</a> introduces few-shot visual concept inference through inverse generative modeling.
+          </p>
+          <p>              
+            <a href="https://arxiv.org/abs/2306.05357">Unsupervised Compositional Concepts Discovery
+              with Text-to-Image Generative Models</a> demonstrates inferring visual concepts as compositions.
+          </p>
+          <p>
+            <a href="https://arxiv.org/abs/2211.15657">Is Conditional Generative Modeling All You Need For Decision-Making?</a>
+            demonstrates generating behavior in decision-making conditioned on task compositions.
+          </p>
+        </div>
+      </div>
+    </div>
+    <!--/ Concurrent Work. -->
+
+  </div>
+</section>
+
+
+<section class="section" id="BibTeX">
+  <div class="container is-max-desktop content">
+    <h2 class="title">BibTeX</h2>
+    <pre><code>@article{netanyahu2024fewshot,
+  author    = {Netanyahu, Aviv and Du, Yilun and Bronars, Antonia and Pari, Jyothish and Tenenbaum, Joshua and Shu, Tianmin and Agrawal, Pulkit},
+  title     = {Few-Shot Task Learning through Inverse Generative Modeling},
+  journal   = {Conference on Neural Information Processing Systems},
+  year      = {2024},
+}</code></pre>
+  </div>
+</section>
+
+
+<footer class="footer">
+  <div class="container">
+    <div class="columns is-centered">
+      <div class="column is-8">
+        <div class="content">
+          <p>
+            This website template is based on <a
+              href="https://github.com/nerfies/nerfies.github.io">Nerfies</a>.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
