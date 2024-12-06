@@ -80,8 +80,9 @@
 
           <div class="column has-text-centered">
             <div class="publication-links">
+              <!-- Arxiv Link. -->
               <span class="link-block">
-                <a href=""
+                <a href="https://arxiv.org/abs/2411.04987"
                    class="external-link button is-normal is-rounded is-dark">
                   <span class="icon">
                       <i class="ai ai-arxiv"></i>
@@ -91,7 +92,7 @@
               </span>
               <!-- Video Link. -->
               <span class="link-block">
-                <a href=""
+                <a href="https://drive.google.com/file/d/13FLgzyyUVj7DT0V82rL2uWekqHeFIa9b/view?usp=sharin"
                    class="external-link button is-normal is-rounded is-dark">
                   <span class="icon">
                       <i class="fab fa-youtube"></i>
@@ -111,7 +112,7 @@
               </span>
               <!-- Dataset Link. -->
               <span class="link-block">
-                <a href=""
+                <a href="https://www.dropbox.com/scl/fo/tbzextj52jez9298ywzk5/AMqMApxiAFAzC5Nyt16jQL8?rlkey=exknjldf7t4vw8vx4pv8vgvah&st=0cpbg113&dl=0"
                    class="external-link button is-normal is-rounded is-dark">
                   <span class="icon">
                       <i class="far fa-images"></i>
@@ -126,33 +127,6 @@
     </div>
   </div>
 </section>
-
-<!-- <section class="hero teaser">
-  <div class="container is-max-desktop">
-    <div class="hero-body">
-      <video id="teaser" autoplay muted playsinline height="100%">
-        <source src="./static/videos/manipulation.mov" type="video/mp4">
-      </video>
-      <h2 class="subtitle has-text-centered"><br>
-        <span class="dnerf">FTL-IGM</span> learns to generate behavior conditioned on task representations. 
-        Then, it learns new task representations from few demonstrations.
-      </h2>
-    </div>
-  </div>
-</section>
-<script>
-  const video = document.getElementById("teaser");
-  const startTime = 1;  // Start at 3 seconds
-  const endTime = 18;   // End at 14 seconds (excluding the last second)
-  video.currentTime = startTime; // Ensure the video starts at the start time
-  video.addEventListener("timeupdate", () => {
-    // Loop the video when it reaches the end time
-    if (video.currentTime >= endTime) {
-      video.currentTime = startTime;
-      video.play();
-    }
-  });
-</script> -->
 
 
 
@@ -255,18 +229,6 @@
       </div>
     </div>
     <!--/ Abstract. -->
-
-    <!-- Paper video. -->
-    <!-- <div class="columns is-centered has-text-centered">
-      <div class="column is-four-fifths">
-        <h2 class="title is-3">Video</h2>
-        <div class="publication-video">
-          <iframe src="https://www.youtube.com/embed/MrKrnHhk8IA?rel=0&amp;showinfo=0"
-                  frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
-        </div>
-      </div>
-    </div> -->
-    <!--/ Paper video. -->
   </div>
 </section>
 
@@ -719,22 +681,13 @@
         <div class="columns is-centered">
           <div class="column content">
             <p>
-              New concepts that are not explicit compositions in the natural language symbolic space of training concepts for Driving, MoCap and Object Rearrangement. Hover over data points to view which concept they represent.
+              New concepts that are not explicit compositions in the natural language symbolic space of training concepts for Driving, MoCap and Object Rearrangement. Hover over data points to view which concept they represent (training representations are blue, learned new concept representations are red).
             </p>
           </div>
 
         </div>
       </div>
     </div>    
-    <!-- <div class="container is-max-desktop">
-      <div class="container">
-        <iframe src="./static/videos/tSNE/tsne_driving.html" frameborder="0" width="100%" height="500" style="background-color: transparent; border: none; outline: none;"></iframe>
-        <iframe src="./static/videos/tSNE/tsne_mocap.html" frameborder="0" width="100%" height="500" style="background-color: transparent; border: none; outline: none;"></iframe>
-        <iframe src="./static/videos/tSNE/tsne_shapes.html" frameborder="0" width="100%" height="500" style="background-color: transparent; border: none; outline: none;"></iframe>
-      </div>
-    </div> -->
-    <!-- t-SNE. -->
-
 
 
 
@@ -841,9 +794,6 @@
 
               // Set iframe width to its container width
               let containerWidth = iframe.offsetWidth;
-              // console.log(iframe);
-              // console.log(containerWidth);
-              // console.log(contentHeight);
               iframe.style.width = containerWidth + 'px';                
           }
     
@@ -903,7 +853,7 @@
     <pre><code>@article{netanyahu2024fewshot,
   author    = {Netanyahu, Aviv and Du, Yilun and Bronars, Antonia and Pari, Jyothish and Tenenbaum, Joshua and Shu, Tianmin and Agrawal, Pulkit},
   title     = {Few-Shot Task Learning through Inverse Generative Modeling},
-  journal   = {Conference on Neural Information Processing Systems},
+  journal   = {Advances in Neural Information Processing Systems},
   year      = {2024},
 }</code></pre>
   </div>
