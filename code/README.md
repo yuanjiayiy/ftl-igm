@@ -46,10 +46,10 @@ Follow `scripts/bash.sh` for each domain:
 ## Cite
 If you use this code in your research, please consider citing
 ```
-@inproceedings{netanyahu2024ftligm,
+@inproceedings{netanyahu2024fewshot,
   title={Few-Shot Task Learning Through Inverse Generative Modeling},
   author={Netanyahu, Aviv and Du, Yilun and Bronars, Antonia and Pari, Jyothish and Tenenbaum, Joshua and Shu, Tianmin and Agrawal, Pulkit},
-  booktitle={The Thirty-Eighth Annual Conference on Neural Information Processing Systems (NeurIPS)},
+  booktitle={Advances in Neural Information Processing Systems},
   year={2024}
 }
 ```
