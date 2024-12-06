@@ -32,7 +32,6 @@ The following scripts
   ```
   cd path_to_dir/ftl-igm/code
   export PYTHONPATH="${PYTHONPATH}:path_to_dir/ftl-igm/code"
-  export PYTHONPATH="${PYTHONPATH}:/data/pulkitag/misc/avivn/ftl-igm/code" #TODO
   ```
 
 ### Running the Scripts
