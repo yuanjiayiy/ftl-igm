@@ -151,7 +151,6 @@ class TemporalUnet(nn.Module):
             cond_obs: [ batch x transition ] # first state
             cond_im: [ batch x C x H x W ] # first state
         '''
-        # import pdb; pdb.set_trace()
         x = einops.rearrange(x, 'b h t -> b t h')
 
         t = self.time_mlp(time)

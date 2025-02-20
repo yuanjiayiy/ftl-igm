@@ -15,8 +15,8 @@ Sample = namedtuple('Sample', 'trajectories values chains')
 
 
 @torch.no_grad()
-def default_sample_fn(model, x, cond, t, dummy_cond=None, cond_obs=None, cond_im=None, compose=False):
-    model_mean, _, model_log_variance = model.p_mean_variance(x=x, cond=cond, t=t, dummy_cond=dummy_cond, cond_obs=cond_obs, cond_im=cond_im, compose=compose)
+def default_sample_fn(model, x, cond, t, dummy_cond=None, cond_obs=None, cond_im=None, compose=False, **kwargs):
+    model_mean, _, model_log_variance = model.p_mean_variance(x=x, cond=cond, t=t, dummy_cond=dummy_cond, cond_obs=cond_obs, cond_im=cond_im, compose=compose,  **kwargs)
     model_std = torch.exp(0.5 * model_log_variance)
 
     # no noise when t == 0
@@ -146,10 +146,16 @@ class GaussianDiffusion(nn.Module):
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
 
-    def p_mean_variance(self, x, cond, t, dummy_cond=None, cond_obs=None, cond_im=None, compose=False):
+    def p_mean_variance(self, x, cond, t, dummy_cond=None, cond_obs=None, cond_im=None, compose=False, uncond_model=None):
         if self.returns_condition:
-            epsilon_uncond = self.model(x, cond, t, dummy_cond, cond_obs, cond_im, force_dropout=True)
-            if not compose:
+            if uncond_model:
+                epsilon_uncond = uncond_model.model(x, cond, t, dummy_cond, cond_obs, cond_im, force_dropout=True)
+            else:
+                epsilon_uncond = self.model(x, cond, t, dummy_cond, cond_obs, cond_im, force_dropout=True)
+            if uncond_model:
+                epsilon_cond = self.model(x, cond, t, dummy_cond, cond_obs, cond_im, use_dropout=False)
+                epsilon = epsilon_uncond + epsilon_cond
+            elif not compose:
                 # epsilon could be epsilon or x0 itself
                 epsilon_cond = self.model(x, cond, t, dummy_cond, cond_obs, cond_im, use_dropout=False)
                 epsilon = epsilon_uncond + self.condition_guidance_w*(epsilon_cond - epsilon_uncond)
@@ -235,11 +241,18 @@ class GaussianDiffusion(nn.Module):
 
         return sample
 
-    def p_losses(self, x_start, cond, t, dummy_cond=None, cond_obs=None, cond_im=None, invert_model=False):
+    def p_losses(self, x_start, cond, t, dummy_cond=None, cond_obs=None, cond_im=None, invert_model=False, train_uncond=False, uncond_model=None):
         noise = torch.randn_like(x_start)
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
         x_noisy = apply_conditioning(x_noisy, cond, self.action_dim)
-        if not invert_model:
+        if train_uncond:
+            x_recon = self.model(x_noisy, cond, t, dummy_cond, cond_obs, cond_im, force_dropout=True)
+        elif uncond_model:
+            epsilon_uncond = uncond_model.model(x_noisy, cond, t, dummy_cond, cond_obs, cond_im, force_dropout=True)
+            epsilon_cond = self.model(x_noisy, cond, t, dummy_cond, cond_obs, cond_im, use_dropout=False)
+            epsilon_diff = epsilon_cond - epsilon_uncond
+            x_recon = epsilon_uncond + (self.condition_guidance_w * epsilon_diff)
+        elif not invert_model:
             x_recon = self.model(x_noisy, cond, t, dummy_cond, cond_obs, cond_im)
             x_recon = apply_conditioning(x_recon, cond, self.action_dim)
         elif cond.shape[0] == 1: #single learned condition
@@ -274,10 +287,10 @@ class GaussianDiffusion(nn.Module):
         return loss, info
 
 
-    def loss(self, x, cond, dummy_cond=None, cond_obs=None, cond_im=None, invert_model=False):        
+    def loss(self, x, cond, dummy_cond=None, cond_obs=None, cond_im=None, invert_model=False, train_uncond=False, uncond_model=None):        
         batch_size = len(x)
         t = torch.randint(0, self.n_timesteps, (batch_size,), device=x.device).long()
-        return self.p_losses(x, cond, t, dummy_cond, cond_obs, cond_im, invert_model)
+        return self.p_losses(x, cond, t, dummy_cond, cond_obs, cond_im, invert_model, train_uncond, uncond_model)
 
 
     def forward(self, cond, dummy_cond=None, history_cond=None, *args, **kwargs):

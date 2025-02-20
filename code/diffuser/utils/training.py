@@ -99,7 +99,7 @@ class Trainer(object):
             return
         self.ema.update_model_average(self.ema_model, self.model)
 
-    def train(self, n_train_steps, invert_model=False):
+    def train(self, n_train_steps, invert_model=False, train_uncond=False, uncond_model=None):
         losses = []
         timer = Timer()
         for _ in range(n_train_steps):
@@ -107,7 +107,7 @@ class Trainer(object):
                 if not invert_model:
                     batch = next(self.dataloader)
                     batch = batch_to_device(batch)
-                    loss, infos = self.model.loss(*batch)
+                    loss, infos = self.model.loss(*batch, train_uncond=train_uncond, uncond_model=None)
                 else:
                     loss, infos = self.invert_model()
                 loss = loss / self.gradient_accumulate_every

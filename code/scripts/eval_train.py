@@ -118,7 +118,8 @@ def open_loop_mocap(basedir, diffusion, dataset, renderer, dummy_cond, all_cond_
     renderer.composite(eval_dir, savenames, np.array(all_samples)[:n_samples_plot], np.array(all_cond_text)[:n_samples_plot])
 
 
-def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, device, n_concepts, mode='train', cond=None, n_samples_plot=8):
+def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, device, n_concepts, mode='train', cond=None, n_samples_plot=8, uncond_model=None):
+    
     if not osp.isdir(eval_dir): os.makedirs(eval_dir)
     n_demos_eval = 1 #per scenario
     for scenario_text,version in scenarios:
@@ -139,6 +140,7 @@ def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, devic
         # Run episodes
         trajs_obs, trajs_im, trajs_rew, trajs_done, trajs_trunc, trajs_info = [], [], [], [], [], []
         traj_num = 0
+        
         while traj_num < n_demos_eval:
             (obs, info), done, truncated = env.reset(), False, False
             traj_obs, traj_im, traj_rew, traj_done, traj_trunc, traj_info = [obs], [], [], [], [], []
@@ -148,6 +150,7 @@ def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, devic
                 ######################
                 # diffusion next state estimation
                 init_s = th.tensor(dataset.normalize_init(traj_obs[-1]).flatten().reshape(1,-1)).to(device) #current obs
+                cond = th.tensor(dataset.generate_conditions(traj_obs[-1]).reshape(1,-1)).to(device) # generate cond, past trajectories
                 with th.no_grad():
                     samples = diffusion.p_sample_loop(
                         shape=(1, dataset.horizon, dataset.observation_dim),
@@ -155,6 +158,7 @@ def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, devic
                         dummy_cond=th.tensor(dataset.dummy_cond.reshape(1,-1)).to(device),
                         cond_obs=init_s,
                         compose=True if mode!='train' and n_concepts > 1 else False,
+                        uncond_model=uncond_model
                         )
                 s_t_1_unnorm = dataset.unnormalize(to_np(samples.trajectories)[0][min(t+1,dataset.horizon-1)]).squeeze() #future step
                 # plot guidance
@@ -162,25 +166,28 @@ def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, devic
                 if not osp.isdir(guidance_dir): os.mkdir(guidance_dir)
                 highway.plot_traj(dataset.unnormalize(to_np(samples.trajectories)).squeeze(), traj_obs[-1], osp.join(guidance_dir, f'inv_model_diffusion_{t}.png'), dataset.n_vehicles, dataset.feat_dim, s_t_1_unnorm, cond_text=scenario_text) #diffusion guidance
                 # inverse planning
-                env_obs = env.observation_type.observe()
+                # import pdb; pdb.set_trace()
+                # env_obs = env.observation_type.observe()
                 inv_planning_obs = [] #n acts x n vehicles x features
                 inv_planning_crashed = []
                 for act in list(range(env.action_space.n)):
                     env_tmp = highway.safe_deepcopy_env(env.unwrapped)
-                    env_tmp_obs = env_tmp.observation_type.observe()
-                    assert (np.array(env_obs) == np.array(env_tmp_obs)).all()
+                    # env_tmp_obs = env_tmp.observation_type.observe()
+                    # assert (np.array(env_obs) == np.array(env_tmp_obs)).all()
                     obs, reward, done, truncated, info = env_tmp.step(act)
                     inv_planning_obs.append(obs)
                     inv_planning_crashed.append(info['crashed'])
-                    assert (np.array(env_obs) == np.array(env.observation_type.observe())).all()
+                    # assert (np.array(env_obs) == np.array(env.observation_type.observe())).all()
                     del env_tmp
                 inv_planning_crashed = np.array(inv_planning_crashed)
+                # TODO: check how many crashed
                 sim_vs_pred_states = np.linalg.norm(np.array(inv_planning_obs)[:,0,:]-s_t_1_unnorm, axis=1)
                 if inv_planning_crashed.all():
                     best_act = SLOWER
                 else:
                     best_act = np.random.choice(np.flatnonzero(sim_vs_pred_states == sim_vs_pred_states[~inv_planning_crashed].min())) #tie breaker best act not crashed (select act that gets us closest to diffusion pred w/o crashing)
                 ######################
+                
                 obs, reward, done, truncated, info = env.step(best_act)
                 traj_obs.append(obs)
                 traj_rew.append(reward)
@@ -242,7 +249,14 @@ if __name__ == "__main__":
     diffusion = diffusion_experiment.diffusion
     diffusion.model.eval()
     dataset = diffusion_experiment.dataset
-    renderer = diffusion_experiment.renderer    
+    renderer = diffusion_experiment.renderer 
+    uncond_model = None
+
+    if args.uncond_diffusion_loadpath:
+        uncond_model = utils.load_diffusion(
+            args.loadbase, args.dataset, args.uncond_diffusion_loadpath,
+            epoch=args.diffusion_epoch, seed=args.seed,
+        ).diffusion
 
     # results path
     basedir = osp.join(args.loadbase, args.dataset, args.diffusion_loadpath)
@@ -261,6 +275,6 @@ if __name__ == "__main__":
         with open(f'data/{args.dataset}/train_gt.pkl', "rb") as input_file: _, all_cond_features, all_cond_init, all_cond_text, dummy_cond = pickle.load(input_file)        
         open_loop_mocap(basedir, diffusion, dataset, renderer, dummy_cond, all_cond_features, all_cond_init, all_cond_text, args.condition_guidance_w, device)
     elif args.dataset == 'highway':
-        closed_loop_highway(osp.join(basedir, f'eval_train_w_{args.condition_guidance_w}'), diffusion, dataset, renderer, [("exit",1), ("highway",1), ("intersection",2), ("merge",1)], device, args.n_concepts)
+        closed_loop_highway(osp.join(basedir, f'eval_train_w_{args.condition_guidance_w}'), diffusion, dataset, renderer, [("highway",1)], device, args.n_concepts, uncond_model=uncond_model)
     elif args.dataset == 'robot':
         open_loop_robot(basedir, diffusion, dataset, renderer, args.condition_guidance_w, device)

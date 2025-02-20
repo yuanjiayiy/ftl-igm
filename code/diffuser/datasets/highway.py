@@ -100,6 +100,16 @@ class HighwaySequenceDataset(torch.utils.data.Dataset):
             # observations: list, each traj size H x ([presence, x, y, vx, vy, cos_h, sin_h] * n_vehicles=5), can have different horizons H.
             # im_obs: same but H x height x width x 3
             self.observations, self.im_obs, rewards, dones, truncated, infos, video_idxs, self.conds_text = pickle.load(input_file)
+
+        # I will only take the highway for now.
+        def filter_lists(reference_list, *target_lists):
+            indices = [i for i, element in enumerate(reference_list) if element == "highway"]
+            return [[lst[i] for i in indices] for lst in target_lists]
+        
+        filtered_dataset = filter_lists(self.conds_text, self.observations, self.im_obs, rewards, dones, truncated, infos, video_idxs)
+        self.observations, self.im_obs, rewards, dones, truncated, infos, video_idxs = filtered_dataset
+        self.conds_text = [element for index, element in enumerate(self.conds_text) if element == "highway"]
+
         self.dummy_cond = self.generate_representation('')
         self.conditions = [self.generate_representation(cond_text) for cond_text in self.conds_text]
         
@@ -210,6 +220,7 @@ class HighwaySequenceDataset(torch.utils.data.Dataset):
         # obs_conditions - normalized s_0 image
         obs_conditions = self.normed_observations[path_ind][start].flatten() #init state s0: (5 vehicles x 7 features)
         batch = Batch(observations, self.conditions[path_ind], self.dummy_cond, obs_conditions)
+        import pdb; pdb.set_trace()
         return batch
 
 
@@ -226,3 +237,54 @@ class HighwaySequenceDataset(torch.utils.data.Dataset):
         obs_conditions = self.normed_observations[path_ind][start].flatten() #init state normalized
         return gt_observations, self.conditions[path_ind].reshape(1,-1), self.dummy_cond.reshape(1,-1), \
             obs_conditions.reshape(1,-1), self.conds_text[path_ind]
+
+class HighwaySequencePartialObservedDataset(HighwaySequenceDataset):
+    def __init__(self, horizon=150, max_path_length=1000, use_padding=True, dataset_path=None, sample_rate=1, *args, **kwargs):
+        super().__init__(horizon, max_path_length, use_padding, dataset_path, sample_rate, *args, **kwargs)
+        path_ind, start, end = self.indices[0]
+        self.cond_dim = self.feat_dim * self.horizon
+        self.dummy_cond = self.get_conditions(path_ind=path_ind, start=start, end=end, car_idx=1, dummy_cond=True)
+        self.car_idx = 1
+        self.car_obs_buffer = []
+
+    def get_conditions(self, path_ind, start, end, car_idx, dummy_cond = False):
+        '''
+            condition on current observation for planning
+        '''
+        partial_observed_conditions = np.array([x[car_idx] for x in self.normed_observations[path_ind][start:end]]).flatten()
+        partial_observed_conditions = np.pad(partial_observed_conditions, (0, max(0, self.cond_dim - len(partial_observed_conditions))), mode='constant').astype(np.float32)
+        if dummy_cond:
+            partial_observed_conditions = np.zeros_like(partial_observed_conditions)
+        return partial_observed_conditions
+    
+    def __getitem__(self, idx, eps=1e-4):
+        path_ind, start, end = self.indices[idx]
+        #observations of ego (first vehicle).
+        observations = np.array([x[0] for x in self.normed_observations[path_ind][start:end]]) #sub traj: (horizon=5 x 7 features)
+        # obs_conditions - normalized s_0 image
+        obs_conditions = self.normed_observations[path_ind][start].flatten() #init state s0: (5 vehicles x 7 features)
+        batch = Batch(observations, self.get_conditions(path_ind=path_ind, start=start, end=end, car_idx=self.car_idx), self.dummy_cond, obs_conditions)
+        return batch
+    
+    def get_item_render(self, idx=None):
+        if idx is None:
+            idx = np.random.choice(range(len(self.indices)))
+        path_ind, start, end = self.indices[idx]
+        gt_observations = np.array([x[0] for x in self.normed_observations[path_ind][start:end]]) #sub traj: (horizon=5 x 7 features)
+        obs_conditions = self.normed_observations[path_ind][start].flatten() #init state normalized
+        return gt_observations, self.get_conditions(path_ind=path_ind, start=max(0, start-self.horizon), end=start, car_idx=self.car_idx).reshape(1,-1), self.dummy_cond.reshape(1,-1), \
+            obs_conditions.reshape(1,-1), self.conds_text[path_ind]
+        # return gt_observations, self.get_conditions(path_ind=path_ind, start=start, end=end, car_idx=self.car_idx).reshape(1,-1), self.dummy_cond.reshape(1,-1), \
+        #             obs_conditions.reshape(1,-1), self.conds_text[path_ind]
+            
+            
+    
+    def generate_conditions(self, obs):
+        # if buffer not full, append
+        # if buffer full, remove the oldest, append to last
+        if len(self.car_obs_buffer) == self.horizon:
+            self.car_obs_buffer.pop(0)
+        self.car_obs_buffer.append(obs[self.car_idx])
+        cond = np.array(self.car_obs_buffer).flatten()
+        padded_cond = np.pad(cond, (0, max(0, self.cond_dim - len(cond))), mode='constant').astype(np.float32)
+        return padded_cond

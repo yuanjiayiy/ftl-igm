@@ -77,12 +77,18 @@ if __name__ == "__main__":
     model = model_config()
     diffusion = diffusion_config(model)
     trainer = trainer_config(diffusion, dataset, renderer)
+    uncond_model = None
+    if not args.train_uncond:
+        uncond_model = utils.load_diffusion(
+            args.loadbase, args.dataset, args.diffusion_loadpath,
+            epoch=args.diffusion_epoch, seed=args.seed,
+        ).diffusion
 
     # test forward & backward pass
     utils.report_parameters(model)
     print('Testing forward...', end=' ', flush=True)
     batch = utils.batchify(dataset[0])
-    loss, _ = diffusion.loss(*batch)
+    loss, _ = diffusion.loss(*batch, train_uncond = args.train_uncond, trained_model=uncond_model)
     loss.backward()
     print('✓')
 
@@ -90,4 +96,4 @@ if __name__ == "__main__":
     n_epochs = int(args.n_train_steps // args.n_steps_per_epoch)
     for i in range(n_epochs):
         print(f'Epoch {i} / {n_epochs} | {args.savepath}')
-        trainer.train(n_train_steps=args.n_steps_per_epoch)
+        trainer.train(n_train_steps=args.n_steps_per_epoch, invert_model = False, train_uncond = args.train_uncond, trained_model=uncond_model)

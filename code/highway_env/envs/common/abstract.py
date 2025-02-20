@@ -319,7 +319,7 @@ class AbstractEnv(gym.Env):
         """
         if self.viewer is not None and self.enable_auto_render:
 
-            if self._record_video_wrapper and self._record_video_wrapper.video_recorder:
+            if self._record_video_wrapper and hasattr(self._record_video_wrapper, 'video_recorder') and self._record_video_wrapper.video_recorder:
                 self._record_video_wrapper.video_recorder.capture_frame()
             else:
                 self.render()

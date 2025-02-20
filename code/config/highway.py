@@ -28,6 +28,7 @@ base = {
         'predict_epsilon': True, 
         'dim_mults': (1, 2, 4, 8),
         'returns_condition': True,
+        'train_uncond': False,
         'condition_guidance_w': 1.,
         'attention': False,
         'renderer': 'utils.HighwayRenderer', 
@@ -40,9 +41,15 @@ base = {
         'dataset_path': "data/highway/training_dataset.pkl",
 
         ## serialization
+        'loadbase': None,
         'logbase': logbase,
         'prefix': 'diffusion/defaults',
         'exp_name': watch(args_to_watch),
+
+        ## loading
+        'diffusion_loadpath': 'f:diffusion/defaults_H{horizon}_T{n_diffusion_steps}/YYYYMMDD-HHMMSS', #TODO update path
+        'diffusion_epoch': 'latest',
+        'value_epoch': 'latest',
 
         ## training
         'trainer': 'utils.TrainerHighway',
@@ -96,6 +103,7 @@ base = {
 
         ## loading
         'diffusion_loadpath': 'f:diffusion/defaults_H{horizon}_T{n_diffusion_steps}/YYYYMMDD-HHMMSS', #TODO update path
+        'uncond_diffusion_loadpath': None,
         'diffusion_epoch': 'latest',
         'value_epoch': 'latest',
 

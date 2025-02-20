@@ -20,7 +20,7 @@ from diffuser.datasets import robot
 from diffuser.utils.training import TrainerROBOT
 
 
-def learn_concept(args, diffusion, trainer, dataset, demos, device, dummy_cond=None):
+def learn_concept(args, diffusion, trainer, dataset, demos, device, dummy_cond=None, uncond_model=None):
     if not osp.isdir(trainer.logdir): os.makedirs(trainer.logdir)
     # disable model gradients
     diffusion.model.requires_grad_(False)
@@ -74,7 +74,8 @@ def learn_concept(args, diffusion, trainer, dataset, demos, device, dummy_cond=N
     # training concept representation (same as diffusion training but derive loss by inputs)
     for i in range(args.n_epochs):
         print(f'Epoch {i} / {args.n_epochs} | {trainer.logdir}')
-        losses = trainer.train(n_train_steps=args.n_steps_per_epoch, invert_model=True)
+        import pdb; pdb.set_trace()
+        losses = trainer.train(n_train_steps=args.n_steps_per_epoch, uncond_model=uncond_model, invert_model=True)
     plt.figure()
     plt.plot(list(range(len(losses))),losses)
     plt.savefig(osp.join(trainer.logdir, f'learn_concept_training_loss.png'))
@@ -262,6 +263,16 @@ if __name__ == "__main__":
     )
     diffusion = diffusion_experiment.diffusion
     renderer = diffusion_experiment.renderer
+
+    # load unconditional diffusion model function from disk
+    uncond_model = diffusion
+    if args.uncond_diffusion_loadpath:
+        uncond_model = utils.load_diffusion(
+            args.loadbase, args.dataset, args.uncond_diffusion_loadpath,
+            epoch=args.diffusion_epoch, seed=args.seed,
+        ).diffusion
+
+
     if args.dataset != 'robot':
         dataset = diffusion_experiment.dataset
         trainer = diffusion_experiment.trainer
@@ -314,7 +325,7 @@ if __name__ == "__main__":
     trainer.logdir = osp.join(basedir, f'{new_concept_name}', f'n_cond_{args.n_concepts}', f'{weight_str}')
 
     # learn new concept
-    conditions, weights = learn_concept(args, diffusion, trainer, dataset, demos, device, dummy_cond)
+    conditions, weights = learn_concept(args, diffusion, trainer, dataset, demos, device, dummy_cond, uncond_model=uncond_model)
     if args.learn_weights:
         weight_str = 'w'
         for cond_idx in range(args.n_concepts): weight_str += f'_{str(round(float(diffusion.condition_guidance_w[cond_idx]),2))}'   

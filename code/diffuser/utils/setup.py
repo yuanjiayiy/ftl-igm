@@ -51,12 +51,12 @@ class Parser(Tap):
         # if not hasattr(args, 'config'): return args
         if not hasattr(args, 'config'): raise ValueError("no config")
         args = self.read_config(args, experiment)
+        self.generate_exp_name(args)
         self.add_extras(args)
         self.eval_fstrings(args)
         self.set_seed(args)
         # self.get_commit(args)
         self.set_loadbase(args)
-        self.generate_exp_name(args)
         self.mkdir(args)
         # self.save_diff(args)
         return args
