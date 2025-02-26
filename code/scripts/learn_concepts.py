@@ -20,7 +20,7 @@ from diffuser.datasets import robot
 from diffuser.utils.training import TrainerROBOT
 
 
-def learn_concept(args, diffusion, trainer, dataset, demos, device, dummy_cond=None, uncond_model=None):
+def learn_concept(args, diffusion, trainer, dataset, demos, device, dummy_cond=None):
     if not osp.isdir(trainer.logdir): os.makedirs(trainer.logdir)
     # disable model gradients
     diffusion.model.requires_grad_(False)
@@ -74,8 +74,9 @@ def learn_concept(args, diffusion, trainer, dataset, demos, device, dummy_cond=N
     # training concept representation (same as diffusion training but derive loss by inputs)
     for i in range(args.n_epochs):
         print(f'Epoch {i} / {args.n_epochs} | {trainer.logdir}')
-        import pdb; pdb.set_trace()
-        losses = trainer.train(n_train_steps=args.n_steps_per_epoch, uncond_model=uncond_model, invert_model=True)
+        losses = trainer.train(n_train_steps=args.n_steps_per_epoch, invert_model=True)
+        if args.learn_weights:
+            print(f'End of epoch {i} condition_guidance_w = {trainer.model.condition_guidance_w}')
     plt.figure()
     plt.plot(list(range(len(losses))),losses)
     plt.savefig(osp.join(trainer.logdir, f'learn_concept_training_loss.png'))
@@ -263,16 +264,6 @@ if __name__ == "__main__":
     )
     diffusion = diffusion_experiment.diffusion
     renderer = diffusion_experiment.renderer
-
-    # load unconditional diffusion model function from disk
-    uncond_model = diffusion
-    if args.uncond_diffusion_loadpath:
-        uncond_model = utils.load_diffusion(
-            args.loadbase, args.dataset, args.uncond_diffusion_loadpath,
-            epoch=args.diffusion_epoch, seed=args.seed,
-        ).diffusion
-
-
     if args.dataset != 'robot':
         dataset = diffusion_experiment.dataset
         trainer = diffusion_experiment.trainer
@@ -291,6 +282,7 @@ if __name__ == "__main__":
         demos = [obs[::args.sample_rate,:] for obs in demos] 
         new_concept_name = args.dataset_name.split("/")[-1].split('mocap_dataset_test_')[-1].split('.pkl')[0]         
     elif args.dataset == 'highway':
+        
         with open(args.dataset_name, 'rb') as input_file: demos, _, _, _, _, _, _, cond_text = pickle.load(input_file)
         new_concept_name = 'eval_new'
         dummy_cond = None
@@ -323,9 +315,10 @@ if __name__ == "__main__":
     # set paths
     weight_str = '' if args.learn_weights else f'w_{args.condition_guidance_w}'    
     trainer.logdir = osp.join(basedir, f'{new_concept_name}', f'n_cond_{args.n_concepts}', f'{weight_str}')
+    
 
     # learn new concept
-    conditions, weights = learn_concept(args, diffusion, trainer, dataset, demos, device, dummy_cond, uncond_model=uncond_model)
+    conditions, weights = learn_concept(args, diffusion, trainer, dataset, demos, device, dummy_cond)
     if args.learn_weights:
         weight_str = 'w'
         for cond_idx in range(args.n_concepts): weight_str += f'_{str(round(float(diffusion.condition_guidance_w[cond_idx]),2))}'   

@@ -9,6 +9,5 @@
 #SBATCH --output="slurm/InvestESG/slurm-%J-%x.out"
 for seed in 1 2 3 4 5 6 7 8
 do
-    python scripts/eval_train.py --uncond_diffusion_loadpath diffusion/defaults_H8_T100/20250215-133903 --diffusion_loadpath car1/20250217-015452 --seed ${seed}
+    python scripts/eval_train.py --uncond_diffusion_loadpath diffusion/defaults_H8_T100/uncond --diffusion_loadpath car_nearest/20250223-005933 --n_concepts 1 --seed ${seed}
 done
-    

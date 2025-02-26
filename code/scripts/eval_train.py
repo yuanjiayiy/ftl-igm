@@ -150,14 +150,15 @@ def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, devic
                 ######################
                 # diffusion next state estimation
                 init_s = th.tensor(dataset.normalize_init(traj_obs[-1]).flatten().reshape(1,-1)).to(device) #current obs
-                cond = th.tensor(dataset.generate_conditions(traj_obs[-1]).reshape(1,-1)).to(device) # generate cond, past trajectories
+                cond = th.tensor(dataset.generate_conditions(traj_obs[-1], range(1, 1+n_concepts))).to(device) # generate cond, past trajectories
+                compose = True if n_concepts and n_concepts > 1 else False
                 with th.no_grad():
                     samples = diffusion.p_sample_loop(
                         shape=(1, dataset.horizon, dataset.observation_dim),
                         cond=cond,
                         dummy_cond=th.tensor(dataset.dummy_cond.reshape(1,-1)).to(device),
                         cond_obs=init_s,
-                        compose=True if mode!='train' and n_concepts > 1 else False,
+                        compose=compose,
                         uncond_model=uncond_model
                         )
                 s_t_1_unnorm = dataset.unnormalize(to_np(samples.trajectories)[0][min(t+1,dataset.horizon-1)]).squeeze() #future step
@@ -262,7 +263,12 @@ if __name__ == "__main__":
     basedir = osp.join(args.loadbase, args.dataset, args.diffusion_loadpath)
 
     # sample from the base model, save, render and get accuracy
-    diffusion.condition_guidance_w = args.condition_guidance_w
+    if args.condition_guidance_w_from_file:
+        with open(args.condition_guidance_w_from_file, 'rb') as input_file:
+            conditions, weights = pickle.load(input_file) #init normalized 
+            diffusion.condition_guidance_w = weights
+    else: 
+        diffusion.condition_guidance_w = args.condition_guidance_w
     if args.dataset == 'object_rearrangement':
         with open(f'data/{args.dataset}/eval_train.pkl', 'rb') as input_file: all_gt, all_cond_features, all_cond_text, dummy_cond = pickle.load(input_file)
         one_step_object_rearrangement(basedir, diffusion, dataset, renderer, dummy_cond, all_cond_features, all_cond_text, args.condition_guidance_w, device)

@@ -1,5 +1,6 @@
 from scripts_utils import Parser
 import diffuser.utils as utils
+import wandb
 
 
 #-----------------------------------------------------------------------------#
@@ -88,12 +89,15 @@ if __name__ == "__main__":
     utils.report_parameters(model)
     print('Testing forward...', end=' ', flush=True)
     batch = utils.batchify(dataset[0])
-    loss, _ = diffusion.loss(*batch, train_uncond = args.train_uncond, trained_model=uncond_model)
+    loss, _ = diffusion.loss(*batch, train_uncond = args.train_uncond, uncond_model=uncond_model)
     loss.backward()
     print('✓')
 
     # main loop
     n_epochs = int(args.n_train_steps // args.n_steps_per_epoch)
+    wandb.init(entity="social-rl", project="diffusion-training", config=vars(args))
     for i in range(n_epochs):
         print(f'Epoch {i} / {n_epochs} | {args.savepath}')
-        trainer.train(n_train_steps=args.n_steps_per_epoch, invert_model = False, train_uncond = args.train_uncond, trained_model=uncond_model)
+        trainer.train(n_train_steps=args.n_steps_per_epoch, invert_model = False, train_uncond = args.train_uncond, uncond_model=uncond_model)
+    
+    wandb.finish()
