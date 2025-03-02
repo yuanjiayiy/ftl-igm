@@ -32,7 +32,20 @@ def register_highway_envs():
     register(
         id='highway-v1',
         entry_point='highway_env.envs:HighwayEnvUnified',
-    )    
+
+    )
+
+    register(
+        id='highway-padded-v1',
+        entry_point='highway_env.envs:HighwayEnvUnified',
+
+    )
+
+    register(
+        id='highway-10car-v1',
+        entry_point='highway_env.envs:HighwayEnvUnified10Cars',
+
+    )
 
     # intersection_env.py
     register(

@@ -154,6 +154,7 @@ class HighwayEnvUnified(HighwayEnv):
     def default_config(cls) -> dict:
         config = super().default_config()
         config.update({
+            "vehicles_count": 5,
             "observation": {
                 "type": "Kinematics",
                 "vehicles_count": 5,
@@ -162,6 +163,26 @@ class HighwayEnvUnified(HighwayEnv):
                 "clip": False, 
                 "normalize": False
             },
-            "duration": 10
+            "duration": 20
+        })
+        return config
+    
+class HighwayEnvUnified10Cars(HighwayEnv):
+    """Unified state space with other envs"""
+
+    @classmethod
+    def default_config(cls) -> dict:
+        config = super().default_config()
+        config.update({
+            "vehicles_count": 10,
+            "observation": {
+                "type": "Kinematics",
+                "vehicles_count": 10,
+                "features": ["presence", "x", "y", "vx", "vy", "cos_h", "sin_h"],
+                "absolute": True,
+                "clip": False, 
+                "normalize": False
+            },
+            "duration": 20
         })
         return config
