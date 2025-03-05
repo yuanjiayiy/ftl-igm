@@ -2,14 +2,18 @@
 import argparse
 import gymnasium as gym
 from stable_baselines3.common.callbacks import BaseCallback
-from gymnasium import ObservationWrapper
+from gymnasium.wrappers import RecordVideo
 from gymnasium.spaces import Box
 import numpy as np
 from highway_env import register_highway_envs
 from stable_baselines3 import PPO
+from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 import wandb
+import torch
+import torch.nn as nn
 register_highway_envs()
 
 # Parse command-line arguments
@@ -17,27 +21,60 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--model-path", type=str, default=None, help="Path to save/load the model")
 parser.add_argument("--save-freq", type=int, default=10000, help="Frequency to save the model")
 parser.add_argument("--eval", action='store_true', help="Eval or not")
+parser.add_argument("--eval-vehicles-count", type=int, default=5, help="Number of vehicles in the evaluation environment")
+parser.add_argument("--env", type=str, default='highway', help="Name of environment to train on")
 args = parser.parse_args()
 
-class PadObservation(ObservationWrapper):
-    def __init__(self, env, target_shape):
-        super().__init__(env)
-        orig_shape = env.observation_space.shape
-        assert len(orig_shape) == len(target_shape), "Target shape must match original shape dimensions"
-        self.observation_space = Box(
-            low=-np.inf, high=np.inf, shape=target_shape, dtype=np.float32
-        )
-        self.orig_shape = orig_shape
-        self.target_shape = target_shape
+def make_env(env_name, vehicles_count=5):
+    env = gym.make(env_name, render_mode="rgb_array", vehicles_count=vehicles_count)
+    assert env.observation_space.shape == (vehicles_count, 7)
+    video_folder = f"video/{env_name}/{wandb.run.id}"
+    env = RecordVideo(env, video_folder=video_folder, episode_trigger=lambda e: True)
+    env.unwrapped.set_record_video_wrapper(env)
+    env = Monitor(env)  # Wrap for logging
+    return env
 
-    def observation(self, obs):
-        padded_obs = np.zeros(self.target_shape, dtype=np.float32)
-        slices = tuple(slice(0, s) for s in self.orig_shape)
-        padded_obs[slices] = obs
-        return padded_obs
+class AttentionLayer(nn.Module):
+    """ Self-attention layer for flexible feature extraction """
+    def __init__(self, input_dim):
+        super(AttentionLayer, self).__init__()
+        self.query = nn.Linear(input_dim, input_dim)
+        self.key = nn.Linear(input_dim, input_dim)
+        self.value = nn.Linear(input_dim, input_dim)
+        self.softmax = nn.Softmax(dim=-1)
+    
+    def forward(self, x):
+        Q = self.query(x)
+        K = self.key(x)
+        V = self.value(x)
+        numerator = Q @ K.transpose(-2, -1)
+        denominator = x.shape[-1] ** 0.5
+        attn_weights = self.softmax(numerator / denominator)
+        return attn_weights @ V
+
+class MaxPoolFeatureExtractor(BaseFeaturesExtractor):
+    """ Feature extractor with MLP and MaxPooling """
+    def __init__(self, observation_space: Box, features_dim: int = 128):
+        super(MaxPoolFeatureExtractor, self).__init__(observation_space, features_dim)
+        input_dim = observation_space.shape[1]  # Assuming shape is (num_vehicles, feature_dim)
+        
+        self.mlp = nn.Sequential(
+            nn.Linear(input_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, features_dim),
+            nn.ReLU()
+        )
+        
+        self.pool = nn.AdaptiveMaxPool1d(1)  # Max pooling over the vehicle dimension
+    
+    def forward(self, x):
+        x = self.mlp(x)  # Shape: (batch_size, num_vehicles, features_dim)
+        x = x.permute(0, 2, 1)  # Change to (batch_size, features_dim, num_vehicles)
+        x = self.pool(x).squeeze(-1)  # Pool over the vehicle dimension, resulting in (batch_size, features_dim)
+        return x
 
 class WandbCallback(BaseCallback):
-    def __init__(self, verbose=0, save_freq=10000, model_path="ppo_highway.zip"):
+    def __init__(self, verbose=0, save_freq=50000, model_path="ppo_highway.zip"):
         super(WandbCallback, self).__init__(verbose)
         self.episode_rewards = []
         self.episode_count = 0
@@ -72,6 +109,11 @@ class WandbCallback(BaseCallback):
             artifact.add_file(model_save_path)
             wandb.log_artifact(artifact)
             print(f"Model uploaded to Wandb at {self.num_timesteps} timesteps")
+            test_env_name = "highway-v1"
+            test_env = DummyVecEnv([lambda: make_env(test_env_name, vehicles_count=args.eval_vehicles_count)])
+            evaluate_model(self.model, test_env)
+            test_env.close()
+
 
         return True
 
@@ -82,20 +124,10 @@ def train_ppo(scenarios):
         env_name = f"{scenario_text.replace('_','-')}-v{version}"
         wandb.init(project=f"ppo_{env_name}")
         
-        def make_env():
-            env = gym.make(env_name, render_mode="rgb_array")
-            if "padded" in env_name:
-                # Get the original shape and define a new padded shape
-                orig_shape = env.observation_space.shape
-                padded_shape = (orig_shape[0] + 5, orig_shape[1])  # Example padding
-                env = PadObservation(env, padded_shape)
-            env = Monitor(env)  # Wrap for logging
-            return env
-        
         if args.eval:
-            env = DummyVecEnv([lambda: make_env()])
+            env = DummyVecEnv([lambda: make_env(env_name)])
         else:
-            env = DummyVecEnv([lambda: make_env() for _ in range(8)])  # Vectorize
+            env = DummyVecEnv([lambda: make_env(env_name) for _ in range(8)])  # Vectorize
 
         # Create PPO model or load from path
         # Load model if exists, else create a new one
@@ -104,15 +136,21 @@ def train_ppo(scenarios):
             model = PPO.load(model_path, env=env)
             print(f"Model loaded successfully from {model_path}!")
         else:
-            model = PPO("MlpPolicy", env, verbose=1, n_steps=128, tensorboard_log="./ppo_highway_tensorboard/")
+            policy_kwargs = dict(
+                features_extractor_class=MaxPoolFeatureExtractor,
+                features_extractor_kwargs=dict(features_dim=128)
+            )
+            model = PPO(ActorCriticPolicy, env, verbose=1, tensorboard_log="./ppo_highway", policy_kwargs=policy_kwargs)
             print("No saved model found, training a new one.")
 
         if args.eval:
-            evaluate_model(model, env)
+            test_env_name = "highway-v1"
+            test_env = DummyVecEnv([lambda: make_env(test_env_name, vehicles_count=args.eval_vehicles_count)])
+            evaluate_model(model, test_env)
 
         else:
             # Train the model
-            model.learn(total_timesteps=100000, callback=WandbCallback(save_freq=args.save_freq, model_path=args.model_path))
+            model.learn(total_timesteps=1000000, callback=WandbCallback(save_freq=args.save_freq, model_path=args.model_path))
 
             # Save the model
             model.save("ppo_highway")
@@ -121,8 +159,10 @@ def train_ppo(scenarios):
 
 def evaluate_model(model, env, num_episodes=64):
     total_rewards = []
+    model.policy.observation_space = env.observation_space # Hack to get around vehicle count mismatch
     for episode in range(num_episodes):
         obs = env.reset()
+        import pdb; pdb.set_trace()
         episode_reward = []
         done = False
         while not done:
@@ -140,5 +180,5 @@ def evaluate_model(model, env, num_episodes=64):
 if __name__ == "__main__":
     # args = Parser().parse_args('plan')
     
-    train_ppo([("highway-padded",1)])
+    train_ppo([(args.env,1)])
 

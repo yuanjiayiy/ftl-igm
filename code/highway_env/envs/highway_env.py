@@ -26,13 +26,12 @@ class HighwayEnv(AbstractEnv):
         config = super().default_config()
         config.update({
             "observation": {
-                "type": "Kinematics"
+                "type": "Kinematics",
             },
             "action": {
                 "type": "DiscreteMetaAction",
             },
             "lanes_count": 4,
-            "vehicles_count": 50,
             "controlled_vehicles": 1,
             "initial_lane_id": None,
             "duration": 40,  # [s]
@@ -46,7 +45,11 @@ class HighwayEnv(AbstractEnv):
             "lane_change_reward": 0,   # The reward received at each lane change action.
             "reward_speed_range": [20, 30],
             "normalize_reward": True,
-            "offroad_terminal": False
+            "offroad_terminal": False,
+            "screen_width": 5000,  # Increase screen width to see more
+            "screen_height": 1000,  # Increase screen height for better coverage
+            "scaling": 5.0,  # Adjust scaling to fit more cars
+            "show_trajectories": True,  # Show vehicle trajectories
         })
         return config
 
@@ -150,6 +153,24 @@ class HighwayEnvFast(HighwayEnv):
 class HighwayEnvUnified(HighwayEnv):
     """Unified state space with other envs"""
 
+    def __init__(self, vehicles_count=5, duration=20, **kwargs):
+        config = {
+            "vehicles_count": vehicles_count,
+            "observation": {
+                "type": "Kinematics",
+                "vehicles_count": vehicles_count,
+                "features": ["presence", "x", "y", "vx", "vy", "cos_h", "sin_h"],
+                "absolute": True,
+                "clip": False, 
+                "normalize": False
+            },
+            "duration": duration
+        }
+        super().__init__(config=config, **kwargs)
+        
+
+
+
     @classmethod
     def default_config(cls) -> dict:
         config = super().default_config()
@@ -167,17 +188,18 @@ class HighwayEnvUnified(HighwayEnv):
         })
         return config
     
-class HighwayEnvUnified10Cars(HighwayEnv):
+
+class HighwayEnvUnified20Cars(HighwayEnv):
     """Unified state space with other envs"""
 
     @classmethod
     def default_config(cls) -> dict:
         config = super().default_config()
         config.update({
-            "vehicles_count": 10,
+            "vehicles_count": 20,
             "observation": {
                 "type": "Kinematics",
-                "vehicles_count": 10,
+                "vehicles_count": 20,
                 "features": ["presence", "x", "y", "vx", "vy", "cos_h", "sin_h"],
                 "absolute": True,
                 "clip": False, 
@@ -186,3 +208,4 @@ class HighwayEnvUnified10Cars(HighwayEnv):
             "duration": 20
         })
         return config
+    

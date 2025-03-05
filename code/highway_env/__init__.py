@@ -42,8 +42,14 @@ def register_highway_envs():
     )
 
     register(
-        id='highway-10car-v1',
-        entry_point='highway_env.envs:HighwayEnvUnified10Cars',
+        id='highway-20car-v1',
+        entry_point='highway_env.envs:HighwayEnvUnified20Cars',
+
+    )
+
+    register(
+        id='highway-50car-v1',
+        entry_point='highway_env.envs:HighwayEnvUnified50Cars',
 
     )
 
