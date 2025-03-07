@@ -30,6 +30,8 @@ parser.add_argument("--attn", action='store_true', help="Use attention layer in 
 parser.add_argument("--eval-vehicles-count", type=int, default=5, help="Number of vehicles in the evaluation environment")
 parser.add_argument("--env", type=str, default='highway', help="Name of environment to train on")
 parser.add_argument("--expert-data-path", type=str, default=None, help="Path to expert demonstrations")
+parser.add_argument("--tensorboard", type=str, default="ppo_highway", help="Path to save tensorboard logs")
+
 
 args = parser.parse_args()
 
@@ -172,9 +174,9 @@ def train_ppo(scenarios):
             )
             
             if args.mlp:
-                model = PPO("MlpPolicy", env, verbose=1, tensorboard_log="./ppo_highway")
+                model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=f"./{args.tensorboard}", policy_kwargs=policy_kwargs)
             else:
-                model = PPO(ActorCriticPolicy, env, verbose=1, tensorboard_log="./ppo_highway", policy_kwargs=policy_kwargs)
+                model = PPO(ActorCriticPolicy, env, verbose=1, tensorboard_log=f"./{args.tensorboard}", policy_kwargs=policy_kwargs)
             print("No saved model found, training a new one.")
 
         if args.eval:
