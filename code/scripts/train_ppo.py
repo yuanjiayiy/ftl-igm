@@ -11,9 +11,12 @@ from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from stable_baselines3.common.buffers import ReplayBuffer
+from stable_baselines3.common.utils import obs_as_tensor
 import wandb
 import torch
 import torch.nn as nn
+import torch.optim as optim
 register_highway_envs()
 
 # Parse command-line arguments
@@ -21,18 +24,42 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--model-path", type=str, default=None, help="Path to save/load the model")
 parser.add_argument("--save-freq", type=int, default=10000, help="Frequency to save the model")
 parser.add_argument("--eval", action='store_true', help="Eval or not")
+parser.add_argument("--mlp", action='store_true', help="MLP policy")
+parser.add_argument("--disable-video", action='store_true', help="Disable video recording")
+parser.add_argument("--attn", action='store_true', help="Use attention layer in the policy")
 parser.add_argument("--eval-vehicles-count", type=int, default=5, help="Number of vehicles in the evaluation environment")
 parser.add_argument("--env", type=str, default='highway', help="Name of environment to train on")
+parser.add_argument("--expert-data-path", type=str, default=None, help="Path to expert demonstrations")
+
 args = parser.parse_args()
 
 def make_env(env_name, vehicles_count=5):
     env = gym.make(env_name, render_mode="rgb_array", vehicles_count=vehicles_count)
     assert env.observation_space.shape == (vehicles_count, 7)
-    video_folder = f"video/{env_name}/{wandb.run.id}"
-    env = RecordVideo(env, video_folder=video_folder, episode_trigger=lambda e: True)
-    env.unwrapped.set_record_video_wrapper(env)
+    if not args.disable_video:
+        video_folder = f"video/{env_name}/{wandb.run.id}"
+        env = RecordVideo(env, video_folder=video_folder, episode_trigger=lambda e: True)
+        env.unwrapped.set_record_video_wrapper(env)
     env = Monitor(env)  # Wrap for logging
     return env
+
+# Load expert demonstrations
+def load_expert_data(filepath):
+    data = np.load(filepath, allow_pickle=True)
+    obs, im, rew, done, trunc, info, idxs, scenario = data
+    obs = np.array(obs)[:, :-1, :, :]  # Remove last observation
+    obs = obs.reshape(-1, 5, 7)
+    action = np.array([[inf['action'] for inf in info_item] for info_item in info]).flatten()
+    print(obs.shape, obs[0], action.shape)
+    return obs, action
+
+# Behavior Cloning Loss Function
+def bc_loss(policy, obs, expert_actions):
+    obs_tensor = obs_as_tensor(obs, policy.device)
+    dist = policy.get_distribution(obs_tensor)
+    logits = dist.distribution.logits
+    loss = nn.CrossEntropyLoss()(logits, expert_actions.long())
+    return loss
 
 class AttentionLayer(nn.Module):
     """ Self-attention layer for flexible feature extraction """
@@ -52,10 +79,10 @@ class AttentionLayer(nn.Module):
         attn_weights = self.softmax(numerator / denominator)
         return attn_weights @ V
 
-class MaxPoolFeatureExtractor(BaseFeaturesExtractor):
+class FeatureExtractor(BaseFeaturesExtractor):
     """ Feature extractor with MLP and MaxPooling """
-    def __init__(self, observation_space: Box, features_dim: int = 128):
-        super(MaxPoolFeatureExtractor, self).__init__(observation_space, features_dim)
+    def __init__(self, observation_space: Box, features_dim: int = 128, attention_layer: bool = False):
+        super(FeatureExtractor, self).__init__(observation_space, features_dim)
         input_dim = observation_space.shape[1]  # Assuming shape is (num_vehicles, feature_dim)
         
         self.mlp = nn.Sequential(
@@ -64,13 +91,17 @@ class MaxPoolFeatureExtractor(BaseFeaturesExtractor):
             nn.Linear(128, features_dim),
             nn.ReLU()
         )
-        
+        if attention_layer:
+            self.attn = AttentionLayer(features_dim)
         self.pool = nn.AdaptiveMaxPool1d(1)  # Max pooling over the vehicle dimension
     
     def forward(self, x):
         x = self.mlp(x)  # Shape: (batch_size, num_vehicles, features_dim)
         x = x.permute(0, 2, 1)  # Change to (batch_size, features_dim, num_vehicles)
-        x = self.pool(x).squeeze(-1)  # Pool over the vehicle dimension, resulting in (batch_size, features_dim)
+        if hasattr(self, 'attn'):
+            x = self.attn(x)
+        else:
+            x = self.pool(x).squeeze(-1)  # Pool over the vehicle dimension, resulting in (batch_size, features_dim)
         return x
 
 class WandbCallback(BaseCallback):
@@ -97,8 +128,7 @@ class WandbCallback(BaseCallback):
         for key, value in self.model.logger.name_to_value.items():
             logs[key] = value
         
-        wandb.log(logs, step=self.num_timesteps)
-
+        wandb.log(logs)
 
         # Save model every save_freq timesteps
         if self.num_timesteps % self.save_freq == 0:
@@ -137,10 +167,14 @@ def train_ppo(scenarios):
             print(f"Model loaded successfully from {model_path}!")
         else:
             policy_kwargs = dict(
-                features_extractor_class=MaxPoolFeatureExtractor,
+                features_extractor_class=FeatureExtractor,
                 features_extractor_kwargs=dict(features_dim=128)
             )
-            model = PPO(ActorCriticPolicy, env, verbose=1, tensorboard_log="./ppo_highway", policy_kwargs=policy_kwargs)
+            
+            if args.mlp:
+                model = PPO("MlpPolicy", env, verbose=1, tensorboard_log="./ppo_highway")
+            else:
+                model = PPO(ActorCriticPolicy, env, verbose=1, tensorboard_log="./ppo_highway", policy_kwargs=policy_kwargs)
             print("No saved model found, training a new one.")
 
         if args.eval:
@@ -149,6 +183,23 @@ def train_ppo(scenarios):
             evaluate_model(model, test_env)
 
         else:
+            if args.expert_data_path is not None:
+                # Load expert demonstrations
+                expert_obs, expert_actions = load_expert_data(args.expert_data_path)
+                expert_actions = torch.tensor(expert_actions, dtype=torch.float32)
+                # Pretrain with Behavior Cloning
+                optimizer = optim.Adam(model.policy.parameters(), lr=3e-4)
+                for epoch in range(5000):  # Number of pretraining steps
+                    loss = bc_loss(model.policy, expert_obs, expert_actions)
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                    if epoch % 100 == 0:
+                        print(f"BC Loss: {loss.item()}")
+                    wandb.log({"BC Loss": {loss.item()}})
+                print("Evaluating model after BC pretraining")
+                eval_env = DummyVecEnv([lambda: make_env(env_name)])
+                evaluate_model(model, eval_env, num_episodes=64)
             # Train the model
             model.learn(total_timesteps=1000000, callback=WandbCallback(save_freq=args.save_freq, model_path=args.model_path))
 
@@ -162,7 +213,6 @@ def evaluate_model(model, env, num_episodes=64):
     model.policy.observation_space = env.observation_space # Hack to get around vehicle count mismatch
     for episode in range(num_episodes):
         obs = env.reset()
-        import pdb; pdb.set_trace()
         episode_reward = []
         done = False
         while not done:

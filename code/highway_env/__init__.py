@@ -36,12 +36,6 @@ def register_highway_envs():
     )
 
     register(
-        id='highway-padded-v1',
-        entry_point='highway_env.envs:HighwayEnvUnified',
-
-    )
-
-    register(
         id='highway-20car-v1',
         entry_point='highway_env.envs:HighwayEnvUnified20Cars',
 
