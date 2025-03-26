@@ -4,6 +4,7 @@ import pickle
 from collections import namedtuple
 from ..utils.rendering import *
 import gymnasium as gym
+import einops
 import copy
 
 from transformers import T5Tokenizer, T5EncoderModel
@@ -12,7 +13,11 @@ from transformers import T5Tokenizer, T5EncoderModel
 def to_tensor(x, dtype=torch.float, device='cpu'):
     return torch.tensor(x, dtype=dtype, device=device)
 
-Batch = namedtuple('Batch', 'trajectories conditions dummy_cond conditions_obs') #trajectories: output traj, conditions: concept (text embedding), conditions_obs: condition on curr obs (model needs to predict next steps, create batches based on curr obs any t from training demos)
+Batch = namedtuple('Batch', 'trajectories agent_idx past_trajectory conditions_obs')
+# trajectories: output traj
+# agent_idx: agent index
+# past_trajectory: past trajectories until current start
+# conditions_obs: condition on curr obs (model needs to predict next steps, create batches based on curr obs any t from training demos)
 
 has_cuda = torch.cuda.is_available()
 device = torch.device('cpu' if not has_cuda else 'cuda')
@@ -89,7 +94,7 @@ def safe_deepcopy_env(obj):
 
 class HighwaySequenceDataset(torch.utils.data.Dataset):
 
-    def __init__(self, horizon=150, max_path_length=1000, use_padding=True, dataset_path=None, sample_rate=1, *args, **kwargs):
+    def __init__(self, horizon=150, max_path_length=1000, use_padding=True, dataset_path=None, sample_rate=1, history_horizon=8, agent_idx=0, *args, **kwargs):
 
         self.horizon = horizon #32 (adjusted for subsampling)
         self.max_path_length = max_path_length #len largest path
@@ -100,16 +105,15 @@ class HighwaySequenceDataset(torch.utils.data.Dataset):
             # observations: list, each traj size H x ([presence, x, y, vx, vy, cos_h, sin_h] * n_vehicles=5), can have different horizons H.
             # im_obs: same but H x height x width x 3
             self.observations, self.im_obs, rewards, dones, truncated, infos, video_idxs, self.conds_text = pickle.load(input_file)
-        self.dummy_cond = self.generate_representation('')
-        self.conditions = [self.generate_representation(cond_text) for cond_text in self.conds_text]
         
         self.observation_dim = self.observations[0][0].shape[-1] # predict full ego features [present,x,y,vx,vy,cos_h,sin_h]
-        self.action_dim = 0 
-        self.cond_dim = len(self.conditions[0]) # 768 T5
-        self.obs_cond_dim = np.prod(self.observations[0][0].shape) # state space 5 vehicles x 7 features
-        self.n_vehicles = 5
-        self.feat_dim = 7
-        self.ego_idx = 0
+        self.action_dim = 0
+
+        # self.obs_cond_dim = ? need to use attention for current obs
+        self.obs_cond_dim = np.prod(self.observations[0][0].shape) # state space N vehicles x 7 features
+        self.history_horizon = history_horizon
+        self.agent_idx = agent_idx
+        self.cond_dim = self.obs_cond_dim
 
         self.n_episodes = len(self.observations)
         
@@ -124,14 +128,9 @@ class HighwaySequenceDataset(torch.utils.data.Dataset):
         self.normalized = False
 
         self.path_lengths = [len(obs) for obs in self.observations]
-        self.indices = self.make_indices(self.path_lengths, self.horizon)
+        self.indices = self.make_indices(self.path_lengths)
+        # self.conditions = self.get_conditions()
         self.normalize()
-
-
-    def generate_representation(self,str):
-        cond = tokenizer(str, return_tensors="pt").input_ids.to(device)
-        cond = model(cond).last_hidden_state.mean(axis=1).detach().cpu().numpy()[0]
-        return cond
     
 
     # def normalize(self, keys=['observations', 'actions']):
@@ -175,12 +174,14 @@ class HighwaySequenceDataset(torch.utils.data.Dataset):
         return ret * (maxs - mins + 1e-5) + mins #[min,max]
 
 
-    def make_indices(self, path_lengths, horizon):
-        '''
-            makes indices for sampling from dataset;
-            each index maps to a datapoint
-        '''
+    def make_indices(self, path_lengths: np.ndarray):
+        """
+        makes indices for sampling from dataset;
+        each index maps to a datapoint
+        """
+
         indices = []
+        horizon = self.horizon + self.history_horizon
         for i, path_length in enumerate(path_lengths):
             max_start = min(path_length - 1, self.max_path_length - horizon)
             if not self.use_padding:
@@ -205,11 +206,24 @@ class HighwaySequenceDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx, eps=1e-4):
         path_ind, start, end = self.indices[idx]
+
+        # shift by `self.history_horizon`
+        history_start = start
+        start = history_start + self.history_horizon
+        end = start + self.horizon
+
         #observations of ego (first vehicle).
-        observations = np.array([x[0] for x in self.normed_observations[path_ind][start:end]]) #sub traj: (horizon=5 x 7 features)
+        observations = np.array([x[0] for x in self.normed_observations[path_ind][start:end]]) #sub traj: (horizon=N x 7 features)
+
+        agent_idx = np.array(self.agent_idx)
+        
+        # past trajectory
+        past_trajectory = self.normed_observations[path_ind][history_start:start, self.agent_idx, :].transpose(1, 0, 2).reshape(len(self.agent_idx), -1)
+
         # obs_conditions - normalized s_0 image
-        obs_conditions = self.normed_observations[path_ind][start].flatten() #init state s0: (5 vehicles x 7 features)
-        batch = Batch(observations, self.conditions[path_ind], self.dummy_cond, obs_conditions)
+        obs_conditions = self.normed_observations[path_ind][start].flatten() #init state s0: (N vehicles x 7 features)
+        
+        batch = Batch(observations, agent_idx, past_trajectory, obs_conditions)
         return batch
 
 
@@ -222,7 +236,17 @@ class HighwaySequenceDataset(torch.utils.data.Dataset):
         if idx is None:
             idx = np.random.choice(range(len(self.indices)))
         path_ind, start, end = self.indices[idx]
+        # shift by `self.history_horizon`
+        history_start = start
+        start = history_start + self.history_horizon
+        end = start + self.horizon
+
         gt_observations = np.array([x[0] for x in self.normed_observations[path_ind][start:end]]) #sub traj: (horizon=5 x 7 features)
         obs_conditions = self.normed_observations[path_ind][start].flatten() #init state normalized
-        return gt_observations, self.conditions[path_ind].reshape(1,-1), self.dummy_cond.reshape(1,-1), \
-            obs_conditions.reshape(1,-1), self.conds_text[path_ind]
+
+        agent_idx = np.array(self.agent_idx)
+
+        # past trajectory
+        past_trajectory = self.normed_observations[path_ind][history_start:start, self.agent_idx, :].flatten().reshape((len(self.agent_idx),-1))
+
+        return gt_observations, agent_idx.reshape(1), past_trajectory.reshape(1,-1), obs_conditions.reshape(1,-1)

@@ -1,3 +1,4 @@
+from diffuser.utils.arrays import pad_array
 import torch
 import torch.nn as nn
 import einops
@@ -55,12 +56,15 @@ class TemporalUnet(nn.Module):
         transition_dim,
         cond_dim,
         obs_cond_dim,
+        history_horizon=0,
         dim=128,
         dim_mults=(1, 2, 4, 8),
         attention=False,
         returns_condition=True,
+        env_ts_condition=True,
         condition_dropout=0.1,
         calc_energy=False,
+        max_path_length=100,
         kernel_size=5,
     ):
         super().__init__()
@@ -86,19 +90,33 @@ class TemporalUnet(nn.Module):
 
         self.returns_condition = returns_condition
         self.condition_dropout = condition_dropout
+        self.history_horizon = history_horizon
+        self.env_ts_condition = env_ts_condition
+        self.max_path_length = max_path_length
+        self.obs_cond_dim = obs_cond_dim
         self.calc_energy = calc_energy
+
+        embed_dim = time_dim + obs_cond_dim
+        
         if self.returns_condition:
-            self.returns_mlp = nn.Sequential(
-                        nn.Linear(1, dim),
-                        act_fn,
-                        nn.Linear(dim, dim * 4),
-                        act_fn,
-                        nn.Linear(dim * 4, dim),
-                    )
+            self.agent_mlp = nn.Sequential(
+                SinusoidalPosEmb(dim),
+                nn.Linear(dim, dim * 4),
+                nn.Mish(),
+                nn.Linear(dim * 4, dim),
+            )
             self.mask_dist = Bernoulli(probs=1-self.condition_dropout)
-            embed_dim = time_dim + cond_dim + obs_cond_dim
-        else:
-            embed_dim = dim
+            embed_dim += dim
+
+        if self.env_ts_condition:
+            self.env_ts_mlp = nn.Sequential(
+                nn.Linear(max_path_length, dim),
+                act_fn,
+                nn.Linear(dim, dim * 4),
+                act_fn,
+                nn.Linear(dim * 4, dim),
+            )
+            embed_dim += dim
 
         self.downs = nn.ModuleList([])
         self.ups = nn.ModuleList([])
@@ -143,30 +161,48 @@ class TemporalUnet(nn.Module):
         resnet18 = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=True)
         self.resnet18 = torch.nn.Sequential(*list(resnet18.children())[:-1])
 
-    def forward(self, x, cond, time, dummy_cond=None, cond_obs=None, cond_im=None, use_dropout=True, force_dropout=False):
+    def forward(self, x, agent_idx, past_trajectory, cond_obs, time, use_dropout=True, force_dropout=False):
         '''
             x : [ batch x horizon x transition ] # full trajectory where first state matches cond_obs
-            cond: [ batch x cond_dim ] # text embedding
-            dummy_cond: [ batch x cond_dim ] # empty string
+            agent_idx: [ batch ] # agent index
+            past_trajectory: [ batch x (history_horizon x feature_dim) ] # past trajectory
             cond_obs: [ batch x transition ] # first state
-            cond_im: [ batch x C x H x W ] # first state
         '''
-        # import pdb; pdb.set_trace()
+        print(agent_idx)
         x = einops.rearrange(x, 'b h t -> b t h')
 
-        t = self.time_mlp(time)
 
-        input_cond = cond #concept embedding
+        # concat with padded current obs
+        t = self.time_mlp(time)
+        t = torch.cat([t, cond_obs], dim=-1)
+
+        # agent idx embedding
         if self.returns_condition:
-            assert dummy_cond is not None
+            assert agent_idx is not None
+
+            agent_embed = self.agent_mlp(agent_idx)
+            # agent_embed: (batch x dim)
             if use_dropout:
-                if (self.mask_dist.sample(sample_shape=(dummy_cond.size(0), 1)).detach().cpu().numpy().flatten()[0] == 0.0): #10% replace with fake cond 
-                    input_cond = dummy_cond
+                mask = self.mask_dist.sample(
+                    sample_shape=(agent_embed.size(0), 1)
+                ).to(agent_embed.device)
+                agent_embed = mask * agent_embed
             if force_dropout:
-                input_cond = dummy_cond #replace with fake cond
-        if cond_im is not None:
-            cond_obs = torch.cat([cond_obs, self.resnet18(cond_im).squeeze(2,3)], dim=-1)
-        t = torch.cat([t, input_cond, cond_obs], dim=-1)
+                agent_embed = 0 * agent_embed
+            t = torch.cat([t, agent_embed], dim=-1)
+
+        if self.env_ts_condition:
+            assert past_trajectory is not None
+            past_trajectory = pad_array(past_trajectory, self.max_path_length)
+            env_ts_embed = self.env_ts_mlp(past_trajectory)
+            if use_dropout:
+                mask = self.mask_dist.sample(
+                    sample_shape=(env_ts_embed.size(0), 1)
+                ).to(env_ts_embed.device)
+                env_ts_embed = mask * env_ts_embed
+            if force_dropout:
+                env_ts_embed = 0 * env_ts_embed
+            t = torch.cat([t, env_ts_embed], dim=-1)
         h = []
 
         for resnet, resnet2, attn, downsample in self.downs:

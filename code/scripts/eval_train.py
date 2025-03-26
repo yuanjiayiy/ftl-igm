@@ -3,6 +3,7 @@ import torch as th
 import os
 import os.path as osp
 import pickle
+import torch
 import warnings
 warnings.filterwarnings("ignore")
 from scripts_utils import Parser
@@ -118,9 +119,9 @@ def open_loop_mocap(basedir, diffusion, dataset, renderer, dummy_cond, all_cond_
     renderer.composite(eval_dir, savenames, np.array(all_samples)[:n_samples_plot], np.array(all_cond_text)[:n_samples_plot])
 
 
-def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, device, n_concepts, mode='train', cond=None, n_samples_plot=8):
+def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, device, n_concepts, mode='train', cond=None, n_samples_plot=8, vehicles_count=None):
     if not osp.isdir(eval_dir): os.makedirs(eval_dir)
-    n_demos_eval = 1 #per scenario
+    n_demos_eval = 10 #per scenario
     for scenario_text,version in scenarios:
         SLOWER = 4 if scenario_text != 'intersection' else 0          
         env_name = f"{scenario_text.replace('_','-')}-v{version}"
@@ -129,11 +130,14 @@ def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, devic
         demos_pkl = f"{env_save_dir}/eval_{mode}.pkl"
         if mode=='train': 
             cond = dataset.generate_representation(scenario_text)
-            cond=th.tensor(cond.reshape(1,-1)).to(device)
+            cond = th.tensor(cond.reshape(1,-1)).to(device)
         else:
             cond = th.tensor(cond).to(device)
         # Make env
-        env = gym.make(env_name, render_mode="rgb_array")
+        if vehicles_count:
+            env = gym.make(env_name, render_mode="rgb_array", vehicles_count=vehicles_count)
+        else:
+            env = gym.make(env_name, render_mode="rgb_array")
         env = RecordVideo(env, video_folder=video_folder, episode_trigger=lambda e: True) #default w/o episode_trigger: stop recording on terminated or truncated, causes issue with recorder.
         env.unwrapped.set_record_video_wrapper(env)
         # Run episodes
@@ -149,13 +153,12 @@ def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, devic
                 # diffusion next state estimation
                 init_s = th.tensor(dataset.normalize_init(traj_obs[-1]).flatten().reshape(1,-1)).to(device) #current obs
                 with th.no_grad():
-                    samples = diffusion.p_sample_loop(
-                        shape=(1, dataset.horizon, dataset.observation_dim),
-                        cond=cond,
-                        dummy_cond=th.tensor(dataset.dummy_cond.reshape(1,-1)).to(device),
-                        cond_obs=init_s,
-                        compose=True if mode!='train' and n_concepts > 1 else False,
-                        )
+                    samples = diffusion.ema_model(
+                        cond=torch.tensor(init_s).to(device), # placeholder
+                        agent_idx=torch.tensor(agent_idx).to(device),
+                        past_trajectory=torch.tensor(past_trajectory).to(device),
+                        cond_obs=torch.tensor(init_s).to(device)
+                    )
                 s_t_1_unnorm = dataset.unnormalize(to_np(samples.trajectories)[0][min(t+1,dataset.horizon-1)]).squeeze() #future step
                 # plot guidance
                 guidance_dir = osp.join(env_save_dir, f'guidance_{traj_num}')

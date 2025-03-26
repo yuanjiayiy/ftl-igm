@@ -30,7 +30,7 @@ base = {
         'returns_condition': True,
         'condition_guidance_w': 1.,
         'attention': False,
-        'renderer': 'utils.HighwayRenderer', 
+        'renderer': 'utils.HighwayRenderer',
 
         ## dataset
         'loader': 'datasets.HighwaySequenceDataset',
@@ -61,6 +61,7 @@ base = {
         'bucket': None,
         'device': 'cuda',
         'seed': None,
+        'force_dropout': False,
     },
 
 

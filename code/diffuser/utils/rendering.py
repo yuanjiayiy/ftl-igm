@@ -147,7 +147,7 @@ class mocapRenderer:
 
 class HighwayRenderer:
     def __init__(self):
-        self.n_vehicles = 5
+        self.n_vehicles = 10
         self.feat_dim = 7
         self.obs_dim = self.n_vehicles * self.feat_dim #5 vehicles, 7 features
         self.horizon = 8

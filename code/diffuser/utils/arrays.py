@@ -85,6 +85,31 @@ def _to_str(num):
 	else:
 		return f'{(num/1e3):.2f} k'
 
+def pad_array(arr: np.ndarray, max_length: int, pad_value=0):
+    """
+    Pads a NumPy array of shape (batch, x) to (batch, max_length).
+
+    Parameters:
+    - arr: np.ndarray of shape (batch, x)
+    - max_length: int, the desired number of columns after padding
+    - pad_value: int/float, value to pad with (default: 0)
+
+    Returns:
+    - padded_arr: np.ndarray of shape (batch, max_length)
+    """
+    batch, x = arr.shape
+    
+    if x >= max_length:
+        return arr[:, :max_length]  # Truncate if x > max_length
+    
+    # Create a padding array of shape (batch, max_length - x)
+    padding = torch.full((batch, max_length - x), fill_value=pad_value, dtype=arr.dtype, device=arr.device)
+    
+    # Concatenate original tensor with padding along columns (dim=1)
+    padded_arr = torch.cat((arr, padding), dim=1)
+    
+    return padded_arr
+
 #-----------------------------------------------------------------------------#
 #----------------------------- parameter counting ----------------------------#
 #-----------------------------------------------------------------------------#

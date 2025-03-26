@@ -99,7 +99,7 @@ class Trainer(object):
             return
         self.ema.update_model_average(self.ema_model, self.model)
 
-    def train(self, n_train_steps, invert_model=False):
+    def train(self, n_train_steps, invert_model=False, force_dropout=False):
         losses = []
         timer = Timer()
         for _ in range(n_train_steps):
@@ -107,7 +107,7 @@ class Trainer(object):
                 if not invert_model:
                     batch = next(self.dataloader)
                     batch = batch_to_device(batch)
-                    loss, infos = self.model.loss(*batch)
+                    loss, infos = self.model.loss(*batch, force_dropout=force_dropout)
                 else:
                     loss, infos = self.invert_model()
                 loss = loss / self.gradient_accumulate_every
@@ -126,10 +126,13 @@ class Trainer(object):
             if self.step % self.log_freq == 0:
                 infos_str = ' | '.join([f'{key}: {val:8.4f}' for key, val in infos.items()])
                 print(f'{self.step}: {loss:8.4f} | {infos_str} | t: {timer():8.4f}', flush=True)
+            
             if self.step == 0 and self.sample_freq and not invert_model:
                 self.render_reference(self.n_reference)
+
             if self.sample_freq and self.step % self.sample_freq == 0 and not invert_model:
-                self.render_samples()
+                self.render_samples(force_dropout=force_dropout)
+
             self.step += 1
         return losses
 
@@ -429,7 +432,7 @@ class TrainerMocap(Trainer):
             samples = self.ema_model(
                 cond=torch.tensor(cond_features).to(self.device),
                 dummy_cond=torch.tensor(cond_dummy).to(self.device),
-                cond_obs=torch.tensor(init_s).to(self.device),
+                cond_obs=torch.tensor(init_s).to(self.device)
             )
             all_samples.append(self.dataset.unnormalize(to_np(samples.trajectories)).squeeze())
             all_cond_text.append(cond_text.replace(' ','_').replace('/','_').replace('(','').replace(')',''))
@@ -496,7 +499,7 @@ class TrainerHighway(Trainer):
         ))
         batch = dataloader_tmp.__next__()
         dataloader_tmp.close()
-        trajectories = to_np(batch.trajectories)        
+        trajectories = to_np(batch.trajectories)
         normed_observations = trajectories[:, :, self.dataset.action_dim:]
         observations = self.dataset.unnormalize(normed_observations)
         conditions = [''] * observations.shape[0] #dummy val for rendering
@@ -504,20 +507,22 @@ class TrainerHighway(Trainer):
         savepath = os.path.join(self.logdir, f'_sample-reference.png')
         self.renderer.composite(savepath, observations, conditions, init_states)
 
-    def render_samples(self, batch_size=2, n_samples=4):
+    def render_samples(self, batch_size=2, n_samples=4, force_dropout=False):
         all_samples = []
         all_cond_text = []
         all_inits = []
         for i in range(n_samples):
-            _, cond_features, cond_dummy, init_s, cond_text = self.dataset.get_item_render()
+            _, agent_idx, past_trajectory, init_s = self.dataset.get_item_render()
             samples = self.ema_model(
-                cond=torch.tensor(cond_features).to(self.device),
-                dummy_cond=torch.tensor(cond_dummy).to(self.device),
+                cond=torch.tensor(init_s).to(self.device), # placeholder
+                agent_idx=torch.tensor(agent_idx).to(self.device),
+                past_trajectory=torch.tensor(past_trajectory).to(self.device),
                 cond_obs=torch.tensor(init_s).to(self.device),
+                force_dropout=force_dropout
             )
             all_samples.append(self.dataset.unnormalize(to_np(samples.trajectories)).squeeze())
             all_inits.append(self.dataset.unnormalize(to_np(init_s)))
-            all_cond_text.append(cond_text.replace(' ','_').replace('/','_'))
+            all_cond_text.append('') #dummy val for rendering
         savepath = os.path.join(self.logdir, f'sample-{self.step}-{i}.png')
         self.renderer.composite(savepath, np.array(all_samples), np.array(all_cond_text), np.array(all_inits))
 

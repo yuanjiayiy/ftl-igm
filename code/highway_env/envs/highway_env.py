@@ -150,6 +150,22 @@ class HighwayEnvFast(HighwayEnv):
 class HighwayEnvUnified(HighwayEnv):
     """Unified state space with other envs"""
 
+    def __init__(self, vehicles_count=5, duration=20, **kwargs):
+        config = {
+            "vehicles_count": vehicles_count,
+            "observation": {
+                "type": "Kinematics",
+                "vehicles_count": vehicles_count+1,
+                "features": ["presence", "x", "y", "vx", "vy", "cos_h", "sin_h"],
+                "absolute": True,
+                "clip": False, 
+                "normalize": False
+            },
+            "duration": duration
+        }
+        super().__init__(config=config, **kwargs)
+        
+
     @classmethod
     def default_config(cls) -> dict:
         config = super().default_config()

@@ -1,5 +1,8 @@
+from scripts.eval_train import closed_loop_highway
 from scripts_utils import Parser
 import diffuser.utils as utils
+import os
+import os.path as osp
 
 
 #-----------------------------------------------------------------------------#
@@ -18,6 +21,7 @@ if __name__ == "__main__":
         use_padding=args.use_padding,
         max_path_length=args.max_path_length,
         dataset_path=args.dataset_path,
+        agent_idx=[0, 1, 2],
         dataset_stats_path=None if not hasattr(args,'dataset_stats_path') else args.dataset_stats_path,
     )
     render_config = utils.Config(
@@ -82,12 +86,21 @@ if __name__ == "__main__":
     utils.report_parameters(model)
     print('Testing forward...', end=' ', flush=True)
     batch = utils.batchify(dataset[0])
-    loss, _ = diffusion.loss(*batch)
+    
+    loss, _ = diffusion.loss(*batch, force_dropout=args.force_dropout)
     loss.backward()
+    print('✓')
+
+    conditions = batch.past_trajectories
+
+    closed_loop_highway(osp.join(args.savepath, f'eval_train_w_{args.condition_guidance_w}'), diffusion, dataset, renderer, [("highway",1)], args.device, 2, mode='train', cond=conditions, vehicles_count=5)
     print('✓')
 
     # main loop
     n_epochs = int(args.n_train_steps // args.n_steps_per_epoch)
     for i in range(n_epochs):
         print(f'Epoch {i} / {n_epochs} | {args.savepath}')
-        trainer.train(n_train_steps=args.n_steps_per_epoch)
+        trainer.train(n_train_steps=args.n_steps_per_epoch, force_dropout=args.force_dropout)
+        if i % 2 == 0:
+            closed_loop_highway(osp.join(args.savepath, f'eval_train_w_{args.condition_guidance_w}'), diffusion, dataset, renderer, [("highway",1)], args.device, args.n_concepts)
+            closed_loop_highway(osp.join(args.savepath, f'eval_train_w_{args.condition_guidance_w}'), diffusion, dataset, renderer, [("highway",1)], args.device, args.n_concepts, 5)
