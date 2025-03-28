@@ -13,12 +13,13 @@ if __name__ == "__main__":
     # dataset
     dataset_config = utils.Config(
         args.loader,
+        args=args,
         savepath=(args.savepath, 'dataset_config.pkl'),
-        horizon=args.horizon,
-        use_padding=args.use_padding,
-        max_path_length=args.max_path_length,
-        dataset_path=args.dataset_path,
-        dataset_stats_path=None if not hasattr(args,'dataset_stats_path') else args.dataset_stats_path,
+        # horizon=args.horizon,
+        # use_padding=args.use_padding,
+        # max_path_length=args.max_path_length,
+        # dataset_path=args.dataset_path,
+        # dataset_stats_path=None if not hasattr(args,'dataset_stats_path') else args.dataset_stats_path,
     )
     render_config = utils.Config(
         args.renderer,
@@ -83,6 +84,7 @@ if __name__ == "__main__":
     print('Testing forward...', end=' ', flush=True)
     batch = utils.batchify(dataset[0])
     loss, _ = diffusion.loss(*batch)
+    
     loss.backward()
     print('✓')
 

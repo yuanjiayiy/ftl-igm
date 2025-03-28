@@ -126,10 +126,10 @@ class Trainer(object):
             if self.step % self.log_freq == 0:
                 infos_str = ' | '.join([f'{key}: {val:8.4f}' for key, val in infos.items()])
                 print(f'{self.step}: {loss:8.4f} | {infos_str} | t: {timer():8.4f}', flush=True)
-            if self.step == 0 and self.sample_freq and not invert_model:
-                self.render_reference(self.n_reference)
-            if self.sample_freq and self.step % self.sample_freq == 0 and not invert_model:
-                self.render_samples()
+            # if self.step == 0 and self.sample_freq and not invert_model:
+            #     self.render_reference(self.n_reference)
+            # if self.sample_freq and self.step % self.sample_freq == 0 and not invert_model:
+            #     self.render_samples()
             self.step += 1
         return losses
 
@@ -610,3 +610,45 @@ class TrainerROBOT(Trainer):
             all_cond_text.append('') #dummy to plot
         self.renderer.composite(os.path.join(self.logdir, f'sample-{self.step}-pred.png'), np.array(all_samples), np.array(all_cond_text), np.array(all_inits), np.array(all_init_ims))
         self.renderer.composite(os.path.join(self.logdir, f'sample-{self.step}-gt.png'), np.array(all_gt_samples), np.array(all_cond_text), np.array(all_inits), np.array(all_init_ims))
+
+#############################################
+class TrainerOvercooked(Trainer):
+    def __init__(
+        self,
+        diffusion_model,
+        dataset,
+        renderer,
+        ema_decay=0.995,
+        train_batch_size=32,
+        train_lr=2e-5,
+        gradient_accumulate_every=2,
+        step_start_ema=2000,
+        update_ema_every=10,
+        log_freq=100,
+        sample_freq=1000,
+        save_freq=1000,
+        label_freq=100000,
+        save_parallel=False,
+        results_folder='./results',
+        n_reference=8,
+        bucket=None,
+    ):
+        super().__init__(
+            diffusion_model,
+            dataset,
+            renderer,
+            ema_decay=ema_decay,
+            train_batch_size=train_batch_size,
+            train_lr=train_lr,
+            gradient_accumulate_every=gradient_accumulate_every,
+            step_start_ema=step_start_ema,
+            update_ema_every=update_ema_every,
+            log_freq=log_freq,
+            sample_freq=sample_freq,
+            save_freq=save_freq,
+            label_freq=label_freq,
+            save_parallel=save_parallel,
+            results_folder=results_folder,
+            n_reference=n_reference,
+            bucket=bucket,
+        )

@@ -208,4 +208,10 @@ class RobotRenderer:
             plt.savefig(savepath)
             print(f'Saved {len(obs)} samples to: {savepath}')
         return fig
+    
+class OvercookedRenderer:
+    def __init__(self):
+        pass
 
+    def composite(self, savepath, observations, conditions, init_states, dim=(1024, 256), **kwargs):
+        pass

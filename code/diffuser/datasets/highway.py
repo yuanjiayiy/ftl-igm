@@ -142,8 +142,7 @@ class HighwaySequenceDataset(torch.utils.data.Dataset):
         '''
         if self.normalized: # states already normalized and clipped.
             self.normed_observations = copy.deepcopy(self.observations)
-            return 
-
+            return
         self.normed_observations = np.vstack(copy.deepcopy(self.observations)) 
         self.normed_observations = (self.normed_observations - self.mins) / (self.maxs - self.mins + 1e-5) # [0,1]
         self.normed_observations = (self.normed_observations * 2) - 1 # [-1,1]
