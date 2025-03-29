@@ -168,7 +168,6 @@ class TemporalUnet(nn.Module):
             past_trajectory: [ batch x (history_horizon x feature_dim) ] # past trajectory
             cond_obs: [ batch x transition ] # first state
         '''
-        print(agent_idx)
         x = einops.rearrange(x, 'b h t -> b t h')
 
 

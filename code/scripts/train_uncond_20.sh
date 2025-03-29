@@ -6,5 +6,5 @@
 #SBATCH --mem=64G
 #SBATCH --gres=gpu:1
 #SBATCH --time=19:00:00
-#SBATCH --output="slurm/InvestESG/slurm-%J-%x.out"
+#SBATCH --output="slurm/slurm-%J-%x.out"
 python scripts/train.py --dataset_path data/highway_1_2/demos.pkl --force_dropout True

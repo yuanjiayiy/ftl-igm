@@ -6,7 +6,7 @@ from ..utils.rendering import *
 import gymnasium as gym
 import einops
 import copy
-
+import wandb
 from transformers import T5Tokenizer, T5EncoderModel
 
 
@@ -41,7 +41,7 @@ def plot_traj(traj, init_s, save_fig_path, n_vehicles, feat_dim, sample_state=No
     plt.title(cond_text)
     plt.savefig(save_fig_path)
 
-def get_acc(scenario_text, all_scenario_rew, all_scenario_info, all_scenario_done, all_scenario_obs):
+def get_acc(scenario_text, all_scenario_rew, all_scenario_info, all_scenario_done, all_scenario_obs, **kwargs):
     # check crashed
     # exit — reached exit
     # intersection — complete turn
@@ -55,6 +55,16 @@ def get_acc(scenario_text, all_scenario_rew, all_scenario_info, all_scenario_don
         all_demo_crashed.append([ts['crashed'] for ts in demo])
     crashes = [x[-1] for x in all_demo_crashed]
     print('crashed ', np.mean(crashes))
+    logs = {
+        'episodal reward': np.array([np.sum(x) for x in all_scenario_rew]),
+        'mean reward': np.mean(rews),
+        'std': np.std(rews),
+        'horizon': np.mean(Hs),
+        'horizon std': np.std(Hs),
+        'crashed': np.mean(crashes),
+        **kwargs
+    }
+    wandb.log(logs)
     if 'exit' in scenario_text: #complete exit
         all_demo_success = []
         for demo in all_scenario_info:
@@ -121,7 +131,7 @@ class HighwaySequenceDataset(torch.utils.data.Dataset):
         reshaped_obs = np.vstack(copy.deepcopy(self.observations))
         self.mins = reshaped_obs.min(axis=0)
         self.maxs = reshaped_obs.max(axis=0)
-
+        self.feat_dim = 7
 
         eps=1e-4
         self.normalized = self.maxs[0,1]<1.0+eps and self.mins[0,1]>-1.0+eps
@@ -154,7 +164,13 @@ class HighwaySequenceDataset(torch.utils.data.Dataset):
         if self.normalized: # states already normalized and clipped.
             normed_init_states = init_states
             return normed_init_states
-        normed_init_states = (np.array(init_states) - self.mins) / (self.maxs - self.mins + 1e-5) # [0,1]
+        # Fill missing rows
+        init_states = np.array(init_states)
+        if init_states != self.mins:
+            padded_init_states = np.zeros_like(self.mins)
+            padded_init_states[:init_states.shape[0], :init_states.shape[1]] = init_states
+            init_states = padded_init_states
+        normed_init_states = (init_states - self.mins) / (self.maxs - self.mins + 1e-5) # [0,1]
         normed_init_states = (normed_init_states * 2) - 1 # [-1,1]
         return normed_init_states
     
@@ -218,7 +234,8 @@ class HighwaySequenceDataset(torch.utils.data.Dataset):
         agent_idx = np.array(self.agent_idx)
         
         # past trajectory
-        past_trajectory = self.normed_observations[path_ind][history_start:start, self.agent_idx, :].transpose(1, 0, 2).reshape(len(self.agent_idx), -1)
+        past_trajectory = self.normed_observations[path_ind][history_start:start, self.agent_idx, :].flatten()
+        # past_trajectory = self.normed_observations[path_ind][history_start:start, self.agent_idx, :].transpose(1, 0, 2).reshape(len(self.agent_idx), -1)
 
         # obs_conditions - normalized s_0 image
         obs_conditions = self.normed_observations[path_ind][start].flatten() #init state s0: (N vehicles x 7 features)

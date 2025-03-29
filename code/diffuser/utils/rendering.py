@@ -168,6 +168,8 @@ class HighwayRenderer:
             ax.plot(obs[0,1], obs[0,2], color='white', marker='^') #indicate agent (cone) direction (init state)
             ax.plot(obs[-1,1], obs[-1,2], color='black', marker='^') #indicate agent (cone) direction (final state)
             #other vehicles init pos
+            self.n_vehicles = np.prod(init_s.shape) // self.feat_dim
+            print(init_s.shape, type(self.n_vehicles), type(self.feat_dim))
             init_s = init_s.reshape(self.n_vehicles, self.feat_dim)
             for i in range(1,self.n_vehicles):
                 ax.scatter(init_s[i,1], init_s[i,2], color='red', marker='^') #(x,y)

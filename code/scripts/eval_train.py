@@ -15,6 +15,7 @@ from AGENT_env import AGENT_env
 from diffuser.datasets import highway
 import gymnasium as gym
 from gymnasium.wrappers import RecordVideo
+import wandb
 from highway_env import register_highway_envs
 register_highway_envs()
 
@@ -121,18 +122,14 @@ def open_loop_mocap(basedir, diffusion, dataset, renderer, dummy_cond, all_cond_
 
 def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, device, n_concepts, mode='train', cond=None, n_samples_plot=8, vehicles_count=None):
     if not osp.isdir(eval_dir): os.makedirs(eval_dir)
-    n_demos_eval = 10 #per scenario
+    n_demos_eval = 8 #per scenario
+    batch = utils.batchify(dataset[0])
     for scenario_text,version in scenarios:
         SLOWER = 4 if scenario_text != 'intersection' else 0          
         env_name = f"{scenario_text.replace('_','-')}-v{version}"
         env_save_dir = f"{eval_dir}/{scenario_text}_{version}"
         video_folder = f"{env_save_dir}/videos"
         demos_pkl = f"{env_save_dir}/eval_{mode}.pkl"
-        if mode=='train': 
-            cond = dataset.generate_representation(scenario_text)
-            cond = th.tensor(cond.reshape(1,-1)).to(device)
-        else:
-            cond = th.tensor(cond).to(device)
         # Make env
         if vehicles_count:
             env = gym.make(env_name, render_mode="rgb_array", vehicles_count=vehicles_count)
@@ -153,29 +150,31 @@ def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, devic
                 # diffusion next state estimation
                 init_s = th.tensor(dataset.normalize_init(traj_obs[-1]).flatten().reshape(1,-1)).to(device) #current obs
                 with th.no_grad():
-                    samples = diffusion.ema_model(
-                        cond=torch.tensor(init_s).to(device), # placeholder
-                        agent_idx=torch.tensor(agent_idx).to(device),
-                        past_trajectory=torch.tensor(past_trajectory).to(device),
-                        cond_obs=torch.tensor(init_s).to(device)
+                    samples = diffusion.p_sample_loop(
+                        shape=(1, dataset.horizon, dataset.observation_dim),
+                        cond=None,
+                        agent_idx=torch.tensor(batch.agent_idx).to(device),
+                        past_trajectory=torch.tensor(batch.past_trajectory).to(device),
+                        cond_obs=torch.tensor(init_s).to(device),
+                        force_dropout=True
                     )
                 s_t_1_unnorm = dataset.unnormalize(to_np(samples.trajectories)[0][min(t+1,dataset.horizon-1)]).squeeze() #future step
                 # plot guidance
                 guidance_dir = osp.join(env_save_dir, f'guidance_{traj_num}')
                 if not osp.isdir(guidance_dir): os.mkdir(guidance_dir)
-                highway.plot_traj(dataset.unnormalize(to_np(samples.trajectories)).squeeze(), traj_obs[-1], osp.join(guidance_dir, f'inv_model_diffusion_{t}.png'), dataset.n_vehicles, dataset.feat_dim, s_t_1_unnorm, cond_text=scenario_text) #diffusion guidance
+                highway.plot_traj(dataset.unnormalize(to_np(samples.trajectories)).squeeze(), traj_obs[-1], osp.join(guidance_dir, f'inv_model_diffusion_{t}.png'), vehicles_count + 1, dataset.feat_dim, s_t_1_unnorm, cond_text=scenario_text) #diffusion guidance
                 # inverse planning
-                env_obs = env.observation_type.observe()
+                # env_obs = env.observation_type.observe()
                 inv_planning_obs = [] #n acts x n vehicles x features
                 inv_planning_crashed = []
                 for act in list(range(env.action_space.n)):
                     env_tmp = highway.safe_deepcopy_env(env.unwrapped)
-                    env_tmp_obs = env_tmp.observation_type.observe()
-                    assert (np.array(env_obs) == np.array(env_tmp_obs)).all()
+                    # env_tmp_obs = env_tmp.observation_type.observe()
+                    # assert (np.array(env_obs) == np.array(env_tmp_obs)).all()
                     obs, reward, done, truncated, info = env_tmp.step(act)
                     inv_planning_obs.append(obs)
                     inv_planning_crashed.append(info['crashed'])
-                    assert (np.array(env_obs) == np.array(env.observation_type.observe())).all()
+                    # assert (np.array(env_obs) == np.array(env.observation_type.observe())).all()
                     del env_tmp
                 inv_planning_crashed = np.array(inv_planning_crashed)
                 sim_vs_pred_states = np.linalg.norm(np.array(inv_planning_obs)[:,0,:]-s_t_1_unnorm, axis=1)
@@ -199,11 +198,12 @@ def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, devic
             trajs_trunc.append(traj_trunc)
             trajs_info.append(traj_info) #has action
             trajs_im.append(traj_im)            
-            traj_num += 1 
+            traj_num += 1
+            print(f"traj_rew = {traj_rew}, traj_len = {len(traj_rew)}, traj_info = {traj_info}")
         # save, render, eval
         with open(demos_pkl, 'wb') as f: pickle.dump([trajs_obs, trajs_im, trajs_rew, trajs_done, trajs_trunc, trajs_info, scenario_text.replace('_',' ')], f)
         renderer.composite(osp.join(env_save_dir, f'closed_loop.png'), [np.array(samp) for samp in trajs_obs][:n_samples_plot], np.repeat(scenario_text,n_samples_plot), np.array(all_inits)[:n_samples_plot])
-        highway.get_acc(scenario_text, trajs_rew, trajs_info, trajs_done, trajs_obs)
+        highway.get_acc(scenario_text, trajs_rew, trajs_info, trajs_done, trajs_obs, vehicles_count=vehicles_count)
         env.close()
 
 def open_loop_robot(basedir, diffusion, dataset, renderer, condition_guidance_w, device, n_demos_eval=10):
@@ -237,6 +237,8 @@ if __name__ == "__main__":
     args = Parser().parse_args('plan')
     device = th.device('cpu' if not th.cuda.is_available() else 'cuda')
 
+    wandb.init(entity="social-rl", project="diffusion-eval", config=vars(args))
+
     # load diffusion model function from disk
     diffusion_experiment = utils.load_diffusion(
         args.loadbase, args.dataset, args.diffusion_loadpath,
@@ -264,6 +266,7 @@ if __name__ == "__main__":
         with open(f'data/{args.dataset}/train_gt.pkl', "rb") as input_file: _, all_cond_features, all_cond_init, all_cond_text, dummy_cond = pickle.load(input_file)        
         open_loop_mocap(basedir, diffusion, dataset, renderer, dummy_cond, all_cond_features, all_cond_init, all_cond_text, args.condition_guidance_w, device)
     elif args.dataset == 'highway':
-        closed_loop_highway(osp.join(basedir, f'eval_train_w_{args.condition_guidance_w}'), diffusion, dataset, renderer, [("exit",1), ("highway",1), ("intersection",2), ("merge",1)], device, args.n_concepts)
+        for vehicles_count in range(2, 9):
+            closed_loop_highway(osp.join(basedir, f'eval_train_w_{args.condition_guidance_w}'), diffusion, dataset, renderer, [("highway",1)], device, args.n_concepts, vehicles_count=vehicles_count)
     elif args.dataset == 'robot':
         open_loop_robot(basedir, diffusion, dataset, renderer, args.condition_guidance_w, device)

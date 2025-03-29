@@ -90,8 +90,9 @@ if __name__ == "__main__":
     loss, _ = diffusion.loss(*batch, force_dropout=args.force_dropout)
     loss.backward()
     print('✓')
+    import pdb; pdb.set_trace()
 
-    conditions = batch.past_trajectories
+    conditions = batch.past_trajectory
 
     closed_loop_highway(osp.join(args.savepath, f'eval_train_w_{args.condition_guidance_w}'), diffusion, dataset, renderer, [("highway",1)], args.device, 2, mode='train', cond=conditions, vehicles_count=5)
     print('✓')
