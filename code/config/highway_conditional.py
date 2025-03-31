@@ -31,12 +31,14 @@ base = {
         'condition_guidance_w': 1.,
         'attention': False,
         'renderer': 'utils.HighwayRenderer',
+        'frozen_unconditional_model_path': 'logs/highway/diffusion/defaults_H8_T100/20250317-173100',
 
         ## dataset
-        'loader': 'datasets.HighwaySequenceDataset',
+        'loader': 'datasets.HighwaySequenceConditionalDataset',
         'clip_denoised': True,
         'use_padding': False,
         'max_path_length': 41,
+        'agent_idx': [0, 1, 2],
         'dataset_path': "data/highway/training_dataset.pkl",
 
         ## serialization
@@ -72,6 +74,7 @@ base = {
         'batch_size': 64,
         'device': 'cuda',
         'seed': None,
+        'force_dropout': False,
         'eval_name': None,
 
         ## sample_kwargs
@@ -92,7 +95,6 @@ base = {
         'horizon': 8,
         'n_diffusion_steps': 100,
         'learning_rate': 2e-4,
-        'force_dropout': False,
 
         ## value function
         'discount': 0.997,

@@ -15,8 +15,8 @@ Sample = namedtuple('Sample', 'trajectories values chains')
 
 
 @torch.no_grad()
-def default_sample_fn(model, x, cond, t, agent_idx=None, past_trajectory=None, cond_obs=None, compose=False, force_dropout=False):
-    model_mean, _, model_log_variance = model.p_mean_variance(x=x, agent_idx=agent_idx, past_trajectory=past_trajectory, t=t, cond_obs=cond_obs, compose=compose, force_dropout=force_dropout)
+def default_sample_fn(model, x, cond, t, agent_idx=None, past_trajectory=None, cond_obs=None, compose=False, force_dropout=False, frozen_unconditional_model=None):
+    model_mean, _, model_log_variance = model.p_mean_variance(x=x, agent_idx=agent_idx, past_trajectory=past_trajectory, t=t, cond_obs=cond_obs, compose=compose, force_dropout=force_dropout, frozen_unconditional_model=frozen_unconditional_model)
     model_std = torch.exp(0.5 * model_log_variance)
 
     # no noise when t == 0
@@ -146,19 +146,24 @@ class GaussianDiffusion(nn.Module):
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
 
-    def p_mean_variance(self, x, agent_idx, past_trajectory, cond_obs, t, compose=False, force_dropout=False):
+    def p_mean_variance(self, x, agent_idx, past_trajectory, cond_obs, t, compose=False, force_dropout=False, frozen_unconditional_model=None):
         if self.returns_condition:
-            epsilon_uncond = self.model(x, agent_idx, past_trajectory, cond_obs, t, force_dropout=True)
-            if force_dropout:
+            if frozen_unconditional_model:
+                epsilon_uncond = frozen_unconditional_model.model(x, agent_idx[:, 0], past_trajectory[:, 0, :], cond_obs, t, force_dropout=force_dropout)
+            else:
+                epsilon_uncond = self.model(x, agent_idx, past_trajectory, cond_obs, t, force_dropout=True)
+            if force_dropout and not frozen_unconditional_model:
                 epsilon = epsilon_uncond
-            elif not compose:
+            elif not compose and not frozen_unconditional_model:
                 # epsilon could be epsilon or x0 itself
                 epsilon_cond = self.model(x, agent_idx, past_trajectory, cond_obs, t, use_dropout=False)
                 epsilon = epsilon_uncond + self.condition_guidance_w*(epsilon_cond - epsilon_uncond)
-            elif isinstance(self.condition_guidance_w, float): # multiple cond composition same weight for all
-                sum_epsilon_diff = -epsilon_uncond * len(cond)
-                for c in cond:
-                    sum_epsilon_diff += self.model(x, c.reshape(1,-1), t, dummy_cond, cond_obs, cond_im, use_dropout=False)
+            elif frozen_unconditional_model: # multiple cond composition same weight for all
+                batch_size, agent_num, _ = past_trajectory.shape
+                sum_epsilon_diff = -epsilon_uncond * (agent_num - 1)
+                for agent in range(1, agent_num):
+                    sum_epsilon_diff += self.model(x,  agent_idx[:, agent], past_trajectory[:, agent, :], cond_obs, t, use_dropout=False)
+                    
                 epsilon = epsilon_uncond + (self.condition_guidance_w * sum_epsilon_diff)
             else: # multiple cond composition learned weights
                 epsilon_diffs = []
@@ -237,27 +242,25 @@ class GaussianDiffusion(nn.Module):
 
         return sample
 
-    def p_losses(self, x_start, agent_idx, past_trajectory, cond_obs, t, invert_model=False, force_dropout=False):
+    def p_losses(self, x_start, agent_idx, past_trajectory, cond_obs, t, invert_model=False, force_dropout=False, frozen_unconditional_model=None):
         # agent_idx is a list (batch * agent_num)
         # past_trajectory is a list with agent_idx (batch * agent_num * past_traject)
         noise = torch.randn_like(x_start)
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
         x_noisy = apply_conditioning(x_noisy, past_trajectory, self.action_dim)
-        if force_dropout:
+        if force_dropout and not frozen_unconditional_model:
             x_recon = self.model(x_noisy,  agent_idx, past_trajectory, cond_obs, t, force_dropout=force_dropout)
             x_recon = apply_conditioning(x_recon, past_trajectory, self.action_dim)
-        elif past_trajectory.shape[1] == 1: #single learned condition
-            epsilon_uncond = self.model(x_noisy, cond, t, dummy_cond, cond_obs, cond_im, force_dropout=True)
-            epsilon_cond = self.model(x_noisy, cond, t, dummy_cond, cond_obs, cond_im, use_dropout=False)
+        elif len(past_trajectory.shape) == 2 and not frozen_unconditional_model: #single learned condition
+            epsilon_uncond = self.model(x_noisy, agent_idx, past_trajectory, cond_obs, t, force_dropout=True)
+            epsilon_cond = self.model(x_noisy, agent_idx, past_trajectory, cond_obs, t, use_dropout=False)
             epsilon_diff = epsilon_cond - epsilon_uncond
             x_recon = epsilon_uncond + (self.condition_guidance_w * epsilon_diff)
-        elif isinstance(self.condition_guidance_w, float): # multiple cond composition same weight for all
-            unconditional_model = utils.load_diffusion("logs/highway/diffusion/defaults_H8_T100/20250317-173100")
-            epsilon_uncond = unconditional_model.model(x_noisy,  agent_idx[:, 0], past_trajectory[:, 0, :], cond_obs, t, force_dropout=True)
+        elif frozen_unconditional_model: # multiple cond composition same weight for all
+            epsilon_uncond = frozen_unconditional_model.model(x_noisy, agent_idx[:, 0], past_trajectory[:, 0, :], cond_obs, t, force_dropout=force_dropout)
             batch_size, agent_num, _ = past_trajectory.shape
-            print(agent_idx[:, 0], past_trajectory[:, 0, :])
-            sum_epsilon_diff = -epsilon_uncond * agent_num
-            for agent in range(agent_num):
+            sum_epsilon_diff = -epsilon_uncond * (agent_num-1)
+            for agent in range(1, agent_num):
                 sum_epsilon_diff += self.model(x_noisy,  agent_idx[:, agent], past_trajectory[:, agent, :], cond_obs, t, use_dropout=False)
             x_recon = epsilon_uncond + (self.condition_guidance_w * sum_epsilon_diff)
         else: # multiple cond composition learned weights
@@ -281,10 +284,10 @@ class GaussianDiffusion(nn.Module):
         return loss, info
 
 
-    def loss(self, x, agent_idx, past_trajectory, cond_obs, invert_model=False, force_dropout=False):        
+    def loss(self, x, agent_idx, past_trajectory, cond_obs, invert_model=False, force_dropout=False, frozen_unconditional_model=None):        
         batch_size = len(x)
         t = torch.randint(0, self.n_timesteps, (batch_size,), device=x.device).long()
-        return self.p_losses(x, agent_idx, past_trajectory, cond_obs, t, invert_model, force_dropout)
+        return self.p_losses(x, agent_idx, past_trajectory, cond_obs, t, invert_model, force_dropout, frozen_unconditional_model)
 
 
     def forward(self, cond, *args, **kwargs):

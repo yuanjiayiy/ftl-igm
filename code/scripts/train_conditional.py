@@ -13,7 +13,8 @@ import wandb
 
 if __name__ == "__main__":
     args = Parser().parse_args('diffusion')
-    wandb.init(entity="social-rl", project="diffusion-train", config=vars(args))
+    wandb.init(entity="social-rl", project="diffusion-train-conditional", config=vars(args))
+
 
     # dataset
     dataset_config = utils.Config(
@@ -22,6 +23,7 @@ if __name__ == "__main__":
         horizon=args.horizon,
         use_padding=args.use_padding,
         max_path_length=args.max_path_length,
+        agent_idx=args.agent_idx,
         dataset_path=args.dataset_path,
         dataset_stats_path=None if not hasattr(args,'dataset_stats_path') else args.dataset_stats_path,
     )
@@ -86,28 +88,31 @@ if __name__ == "__main__":
     # test forward & backward pass
     utils.report_parameters(model)
     print('Testing forward...', end=' ', flush=True)
-    batch = utils.batchify(dataset[0])
     
-    loss, _ = diffusion.loss(*batch, force_dropout=args.force_dropout)
+    batch = utils.batchify(dataset[0])
+    frozen_unconditional_model = utils.load_diffusion(args.frozen_unconditional_model_path) if args.frozen_unconditional_model_path else None
+    
+    loss, _ = diffusion.loss(*batch, force_dropout=args.force_dropout, frozen_unconditional_model=frozen_unconditional_model)
     loss.backward()
     print('✓')
     
 
-    conditions = batch.past_trajectory
+    print({k: getattr(v, "shape", "No shape") for k, v in batch._asdict().items()})
 
-    closed_loop_highway(osp.join(args.savepath,
-                                 f'eval_train_w_{args.condition_guidance_w}'),
-                                 diffusion, dataset, renderer, [("highway",1)],
-                                 args.device,
-                                 mode='train',
-                                 n_demos_eval=1,
-                                 vehicles_count=5,
-                                 force_dropout=args.force_dropout)
+    # closed_loop_highway(osp.join(args.savepath,
+    #                              f'eval_train_w_{args.condition_guidance_w}'),
+    #                              diffusion, dataset, renderer, [("highway",1)],
+    #                              args.device, mode='train',
+    #                              vehicles_count=5,
+    #                              n_demos_eval=1,
+    #                              force_dropout=args.force_dropout,
+    #                              frozen_unconditional_model=frozen_unconditional_model,
+    #                              eval_conditional_model=True)
     print('✓')
 
     # main loop
     n_epochs = int(args.n_train_steps // args.n_steps_per_epoch)
     for i in range(n_epochs):
         print(f'Epoch {i} / {n_epochs} | {args.savepath}')
-        trainer.train(n_train_steps=args.n_steps_per_epoch, force_dropout=args.force_dropout)
+        trainer.train(n_train_steps=args.n_steps_per_epoch, force_dropout=args.force_dropout, frozen_unconditional_model=frozen_unconditional_model)
     

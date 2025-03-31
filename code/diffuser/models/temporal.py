@@ -168,7 +168,9 @@ class TemporalUnet(nn.Module):
             past_trajectory: [ batch x (history_horizon x feature_dim) ] # past trajectory
             cond_obs: [ batch x transition ] # first state
         '''
+        # print(f"x.shape = {x.shape}, agent_idx.shape={agent_idx.shape}, past_trajectory.shape={past_trajectory.shape}, cond_obs={cond_obs.shape}")
         x = einops.rearrange(x, 'b h t -> b t h')
+        
 
 
         # concat with padded current obs

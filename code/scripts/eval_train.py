@@ -120,10 +120,26 @@ def open_loop_mocap(basedir, diffusion, dataset, renderer, dummy_cond, all_cond_
     renderer.composite(eval_dir, savenames, np.array(all_samples)[:n_samples_plot], np.array(all_cond_text)[:n_samples_plot])
 
 
-def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, device, n_concepts, mode='train', cond=None, n_samples_plot=8, vehicles_count=None):
+def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, device,
+                        mode='train',
+                        n_samples_plot=8,
+                        n_demos_eval=8,
+                        vehicles_count=None,
+                        force_dropout=False,
+                        frozen_unconditional_model=None,
+                        eval_conditional_model=False):
     if not osp.isdir(eval_dir): os.makedirs(eval_dir)
-    n_demos_eval = 8 #per scenario
+    n_demos_eval = n_demos_eval #per scenario
     batch = utils.batchify(dataset[0])
+    if eval_conditional_model:
+        agent_idx_list = np.array(list(range(vehicles_count+1)))
+        agent_idx = torch.tensor(agent_idx_list.reshape(1, -1)).to(device)
+        past_trajectory = torch.zeros((1, len(agent_idx_list), dataset.past_traj_dim), device=device)
+    else:
+        agent_idx = batch.agent_idx
+        agent_idx_list = batch.agent_idx[0] if len(batch.agent_idx.shape) > 1 else batch.agent_idx
+        agent_idx_list = agent_idx_list.cpu().numpy().astype(int)
+        past_trajectory = torch.zeros_like(batch.past_trajectory, device=device)
     for scenario_text,version in scenarios:
         SLOWER = 4 if scenario_text != 'intersection' else 0          
         env_name = f"{scenario_text.replace('_','-')}-v{version}"
@@ -145,19 +161,23 @@ def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, devic
             traj_obs, traj_im, traj_rew, traj_done, traj_trunc, traj_info = [obs], [], [], [], [], []
             all_inits = [obs]
             t = 0 # timestep
+            past_traj = []
             while not (done or truncated):
                 ######################
                 # diffusion next state estimation
                 init_s = th.tensor(dataset.normalize_init(traj_obs[-1]).flatten().reshape(1,-1)).to(device) #current obs
+                past_traj.insert(0, dataset.normalize_init(traj_obs[-1])[agent_idx_list])
                 with th.no_grad():
                     samples = diffusion.p_sample_loop(
                         shape=(1, dataset.horizon, dataset.observation_dim),
                         cond=None,
-                        agent_idx=torch.tensor(batch.agent_idx).to(device),
-                        past_trajectory=torch.tensor(batch.past_trajectory).to(device),
+                        agent_idx=agent_idx,
+                        past_trajectory=past_trajectory,
                         cond_obs=torch.tensor(init_s).to(device),
-                        force_dropout=True
+                        force_dropout=force_dropout,
+                        frozen_unconditional_model=frozen_unconditional_model
                     )
+                    
                 s_t_1_unnorm = dataset.unnormalize(to_np(samples.trajectories)[0][min(t+1,dataset.horizon-1)]).squeeze() #future step
                 # plot guidance
                 guidance_dir = osp.join(env_save_dir, f'guidance_{traj_num}')
@@ -191,6 +211,17 @@ def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, devic
                 traj_info.append(info) #speed, crashed, act
                 img = env.render()
                 traj_im.append(img)
+                if eval_conditional_model:
+                    past_trajectory_by_agent = []
+                    for idx in range(len(agent_idx_list)):
+                        unpadded_past_trajectory = np.stack(past_traj[:dataset.history_horizon], axis=1)[idx]
+                        padded_past_trajectory = dataset.pad_history(unpadded_past_trajectory=unpadded_past_trajectory)
+                        past_trajectory_by_agent.append(padded_past_trajectory)
+                    past_trajectory = np.vstack(past_trajectory_by_agent)
+                    past_trajectory = torch.tensor(past_trajectory.reshape(1, *past_trajectory.shape).astype(np.float32)).to(device)
+                else:
+                    unpadded_past_trajectory = np.vstack(past_traj[:dataset.history_horizon])
+                    past_trajectory = torch.tensor(dataset.pad_history(unpadded_past_trajectory=unpadded_past_trajectory).reshape(1,-1).astype(np.float32)).to(device) 
                 t += 1
             trajs_obs.append(traj_obs) # save as list, not numpy, not all same horizon (done or truncated)
             trajs_rew.append(traj_rew)
@@ -237,7 +268,10 @@ if __name__ == "__main__":
     args = Parser().parse_args('plan')
     device = th.device('cpu' if not th.cuda.is_available() else 'cuda')
 
-    wandb.init(entity="social-rl", project="diffusion-eval", config=vars(args))
+    wandb.init(entity="social-rl",
+               project="diffusion-eval",
+               name=args.eval_name,
+               config=vars(args))
 
     # load diffusion model function from disk
     diffusion_experiment = utils.load_diffusion(
@@ -247,7 +281,12 @@ if __name__ == "__main__":
     diffusion = diffusion_experiment.diffusion
     diffusion.model.eval()
     dataset = diffusion_experiment.dataset
-    renderer = diffusion_experiment.renderer    
+    renderer = diffusion_experiment.renderer
+
+    if hasattr(args, "frozen_unconditional_model_path") and args.frozen_unconditional_model_path is not None:
+        frozen_unconditional_model = utils.load_diffusion(args.frozen_unconditional_model_path)
+    else:
+        frozen_unconditional_model = None
 
     # results path
     basedir = osp.join(args.loadbase, args.dataset, args.diffusion_loadpath)
@@ -265,8 +304,12 @@ if __name__ == "__main__":
         diffusion = diffusion_experiment.ema
         with open(f'data/{args.dataset}/train_gt.pkl', "rb") as input_file: _, all_cond_features, all_cond_init, all_cond_text, dummy_cond = pickle.load(input_file)        
         open_loop_mocap(basedir, diffusion, dataset, renderer, dummy_cond, all_cond_features, all_cond_init, all_cond_text, args.condition_guidance_w, device)
-    elif args.dataset == 'highway':
+    elif args.dataset == 'highway' or args.dataset == 'highway_conditional':
         for vehicles_count in range(2, 9):
-            closed_loop_highway(osp.join(basedir, f'eval_train_w_{args.condition_guidance_w}'), diffusion, dataset, renderer, [("highway",1)], device, args.n_concepts, vehicles_count=vehicles_count)
+            closed_loop_highway(osp.join(basedir, f'eval_train_w_{args.condition_guidance_w}'), diffusion, dataset, renderer, [("highway",1)], device,
+                                vehicles_count=vehicles_count,
+                                force_dropout=args.force_dropout,
+                                frozen_unconditional_model=frozen_unconditional_model,
+                                eval_conditional_model=args.eval_conditional_model)
     elif args.dataset == 'robot':
         open_loop_robot(basedir, diffusion, dataset, renderer, args.condition_guidance_w, device)

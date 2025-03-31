@@ -56,7 +56,7 @@ def get_acc(scenario_text, all_scenario_rew, all_scenario_info, all_scenario_don
     crashes = [x[-1] for x in all_demo_crashed]
     print('crashed ', np.mean(crashes))
     logs = {
-        'episodal reward': np.mean(np.array([np.sum(x) for x in all_scenario_rew])),
+        'episodal reward': np.array([np.sum(x) for x in all_scenario_rew]),
         'mean reward': np.mean(rews),
         'std': np.std(rews),
         'horizon': np.mean(Hs),
@@ -102,7 +102,7 @@ def safe_deepcopy_env(obj):
     return result
 
 
-class HighwaySequenceDataset(torch.utils.data.Dataset):
+class HighwaySequenceConditionalDataset(torch.utils.data.Dataset):
 
     def __init__(self, horizon=150, max_path_length=1000, use_padding=True, dataset_path=None, sample_rate=1, history_horizon=8, agent_idx=0, *args, **kwargs):
 
@@ -132,6 +132,7 @@ class HighwaySequenceDataset(torch.utils.data.Dataset):
         self.mins = reshaped_obs.min(axis=0)
         self.maxs = reshaped_obs.max(axis=0)
         self.feat_dim = 7
+        self.past_traj_dim = self.history_horizon * self.feat_dim
 
         eps=1e-4
         self.normalized = self.maxs[0,1]<1.0+eps and self.mins[0,1]>-1.0+eps
@@ -230,10 +231,12 @@ class HighwaySequenceDataset(torch.utils.data.Dataset):
         agent_idx = np.array(self.agent_idx)
         
         # past trajectory, in reverse order
-        unpadded_past_trajectory = self.normed_observations[path_ind][history_start:start][::-1, self.agent_idx, :]
-        past_trajectory = self.pad_history(unpadded_past_trajectory=unpadded_past_trajectory)
-        
-        # past_trajectory = self.normed_observations[path_ind][history_start:start, self.agent_idx, :].transpose(1, 0, 2).reshape(len(self.agent_idx), -1)
+        past_trajectory = []
+        for idx in self.agent_idx:
+            unpadded_past_trajectory = self.normed_observations[path_ind][history_start:start][::-1, idx, :]
+            past_traj = self.pad_history(unpadded_past_trajectory=unpadded_past_trajectory)
+            past_trajectory.append(past_traj)
+        past_trajectory = np.vstack(past_trajectory)
 
         # obs_conditions - normalized s_0 image
         obs_conditions = self.normed_observations[path_ind][start].flatten() #init state s0: (N vehicles x 7 features)
@@ -260,10 +263,14 @@ class HighwaySequenceDataset(torch.utils.data.Dataset):
         agent_idx = np.array(self.agent_idx)
 
         # past trajectory
-        unpadded_past_trajectory = self.normed_observations[path_ind][history_start:start][::-1, self.agent_idx, :]
-        past_trajectory = self.pad_history(unpadded_past_trajectory=unpadded_past_trajectory)
+        past_trajectory = []
+        for idx in self.agent_idx:
+            unpadded_past_trajectory = self.normed_observations[path_ind][history_start:start][::-1, idx, :]
+            past_traj = self.pad_history(unpadded_past_trajectory=unpadded_past_trajectory)
+            past_trajectory.append(past_traj)
+        past_trajectory = np.vstack(past_trajectory)
 
-        return gt_observations, agent_idx.reshape(1), past_trajectory.reshape(1,-1), obs_conditions.reshape(1,-1)
+        return gt_observations, agent_idx.reshape(1, -1), past_trajectory.reshape(1, *past_trajectory.shape), obs_conditions.reshape(1,-1)
     
     def pad_history(self, unpadded_past_trajectory):
 

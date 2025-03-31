@@ -99,7 +99,7 @@ class Trainer(object):
             return
         self.ema.update_model_average(self.ema_model, self.model)
 
-    def train(self, n_train_steps, invert_model=False, force_dropout=False):
+    def train(self, n_train_steps, invert_model=False, force_dropout=False, frozen_unconditional_model=None):
         losses = []
         timer = Timer()
         for _ in range(n_train_steps):
@@ -107,7 +107,7 @@ class Trainer(object):
                 if not invert_model:
                     batch = next(self.dataloader)
                     batch = batch_to_device(batch)
-                    loss, infos = self.model.loss(*batch, force_dropout=force_dropout)
+                    loss, infos = self.model.loss(*batch, force_dropout=force_dropout, frozen_unconditional_model=frozen_unconditional_model)
                 else:
                     loss, infos = self.invert_model()
                 loss = loss / self.gradient_accumulate_every
@@ -131,7 +131,7 @@ class Trainer(object):
                 self.render_reference(self.n_reference)
 
             if self.sample_freq and self.step % self.sample_freq == 0 and not invert_model:
-                self.render_samples(force_dropout=force_dropout)
+                self.render_samples(force_dropout=force_dropout, frozen_unconditional_model=frozen_unconditional_model)
 
             self.step += 1
         return losses
@@ -507,7 +507,7 @@ class TrainerHighway(Trainer):
         savepath = os.path.join(self.logdir, f'_sample-reference.png')
         self.renderer.composite(savepath, observations, conditions, init_states)
 
-    def render_samples(self, batch_size=2, n_samples=4, force_dropout=False):
+    def render_samples(self, batch_size=2, n_samples=4, force_dropout=False, frozen_unconditional_model=None):
         all_samples = []
         all_cond_text = []
         all_inits = []
@@ -518,7 +518,8 @@ class TrainerHighway(Trainer):
                 agent_idx=torch.tensor(agent_idx).to(self.device),
                 past_trajectory=torch.tensor(past_trajectory).to(self.device),
                 cond_obs=torch.tensor(init_s).to(self.device),
-                force_dropout=force_dropout
+                force_dropout=force_dropout,
+                frozen_unconditional_model=frozen_unconditional_model
             )
             all_samples.append(self.dataset.unnormalize(to_np(samples.trajectories)).squeeze())
             all_inits.append(self.dataset.unnormalize(to_np(init_s)))
