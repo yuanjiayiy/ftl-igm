@@ -46,15 +46,21 @@ def get_acc(scenario_text, all_scenario_rew, all_scenario_info, all_scenario_don
     # exit — reached exit
     # intersection — complete turn
     # merge — reach end of lane  
+    SLOWER = 4
     rews = [np.sum(x)/len(x) for x in all_scenario_rew]
     print('mean reward ', np.mean(rews), '\pm ', np.std(rews))
     Hs = [len(x) for x in all_scenario_rew] 
     print('horizon ', np.mean(Hs), '\pm ', np.std(Hs))     
     all_demo_crashed = []
+    all_demo_act = []
     for demo in all_scenario_info:
         all_demo_crashed.append([ts['crashed'] for ts in demo])
+        all_demo_act.append([ts['action'] for ts in demo])
     crashes = [x[-1] for x in all_demo_crashed]
     print('crashed ', np.mean(crashes))
+    slower_proportion = [np.sum(x.count(SLOWER)) /len(x) for x in all_demo_act]
+    print('mean slower ', np.mean(slower_proportion), '\pm ', np.std(slower_proportion))
+
     logs = {
         'episodal reward': np.mean(np.array([np.sum(x) for x in all_scenario_rew])),
         'mean reward': np.mean(rews),
@@ -62,6 +68,7 @@ def get_acc(scenario_text, all_scenario_rew, all_scenario_info, all_scenario_don
         'horizon': np.mean(Hs),
         'horizon std': np.std(Hs),
         'crashed': np.mean(crashes),
+        'all_scenario_info vehicle_count=' + str(kwargs['vehicles_count']): wandb.Table(data=[[str(x)] for x in all_scenario_info], columns=["info"]),
         **kwargs
     }
     wandb.log(logs)

@@ -76,6 +76,7 @@ base = {
         'seed': None,
         'force_dropout': False,
         'eval_name': None,
+        'check_crashed': True,
 
         ## sample_kwargs
         'n_guide_steps': 2,

@@ -73,6 +73,7 @@ base = {
         'device': 'cuda',
         'seed': None,
         'eval_name': None,
+        'check_crashed': True,
 
         ## sample_kwargs
         'n_guide_steps': 2,

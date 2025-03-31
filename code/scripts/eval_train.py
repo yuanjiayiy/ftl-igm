@@ -198,12 +198,17 @@ def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, devic
                     del env_tmp
                 inv_planning_crashed = np.array(inv_planning_crashed)
                 sim_vs_pred_states = np.linalg.norm(np.array(inv_planning_obs)[:,0,:]-s_t_1_unnorm, axis=1)
-                if inv_planning_crashed.all():
+                if args.check_crashed and inv_planning_crashed.all():
                     best_act = SLOWER
-                else:
+                elif args.check_crashed:
                     best_act = np.random.choice(np.flatnonzero(sim_vs_pred_states == sim_vs_pred_states[~inv_planning_crashed].min())) #tie breaker best act not crashed (select act that gets us closest to diffusion pred w/o crashing)
+                else:
+                    best_act = np.random.choice(np.flatnonzero(sim_vs_pred_states == sim_vs_pred_states.min())) #tie breaker best act (select act that gets us closest to diffusion pred w/o crashing)
+
                 ######################
                 obs, reward, done, truncated, info = env.step(best_act)
+                if info['crashed']:
+                    print(f"crash after {info['action']}")
                 traj_obs.append(obs)
                 traj_rew.append(reward)
                 traj_done.append(done)
@@ -228,7 +233,7 @@ def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, devic
             trajs_done.append(traj_done)
             trajs_trunc.append(traj_trunc)
             trajs_info.append(traj_info) #has action
-            trajs_im.append(traj_im)            
+            trajs_im.append(traj_im)    
             traj_num += 1
             print(f"traj_rew = {traj_rew}, traj_len = {len(traj_rew)}, traj_info = {traj_info}")
         # save, render, eval
@@ -309,6 +314,7 @@ if __name__ == "__main__":
             closed_loop_highway(osp.join(basedir, f'eval_train_w_{args.condition_guidance_w}'), diffusion, dataset, renderer, [("highway",1)], device,
                                 vehicles_count=vehicles_count,
                                 force_dropout=args.force_dropout,
+                                n_demos_eval=8,
                                 frozen_unconditional_model=frozen_unconditional_model,
                                 eval_conditional_model=args.eval_conditional_model)
     elif args.dataset == 'robot':
