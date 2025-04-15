@@ -20,7 +20,7 @@ base = {
         ## model
         'model': 'models.TemporalUnet',
         'diffusion': 'models.GaussianDiffusion',
-        'horizon': 8,
+        'horizon': 32,
         'n_diffusion_steps': 100,
         'action_weight': 10,
         'loss_weights': None,
@@ -35,8 +35,10 @@ base = {
         ## dataset
         'loader': 'datasets.OvercookedSequenceDataset',
         'clip_denoised': True,
-        'use_padding': False,
+        'use_padding': True,
         'max_path_length': 400,
+        'episode_length': 400,
+        'chunk_length': 64,
         'dataset_path': "data/overcooked_dataset/counter_circuit_o_1order_mep/dataset.hdf5",
 
         ## serialization
@@ -87,7 +89,7 @@ base = {
         'max_render': 8,
 
         ## diffusion model
-        'horizon': 8,
+        'horizon': 32,
         'n_diffusion_steps': 100,
         'learning_rate': 2e-4,
 
@@ -107,6 +109,7 @@ base = {
         'learn_weights': True,
         'condition_guidance_w': 1.,  
         'n_epochs': 5,
-        'n_steps_per_epoch': 10000,        
+        'n_steps_per_epoch': 10000,
+        'population_yaml_path': '/mmfs1/gscratch/cse/jiayiy9/GAMMA-human-ai-collaboration/mapbt/scripts/overcooked_population/pop_data/counter_circuit_o_1order_comedi/comedi_oracle_vs_proxy.yml'    
     },
 }

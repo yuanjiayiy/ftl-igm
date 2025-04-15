@@ -1,3 +1,4 @@
+from scripts.eval_train import closed_loop_overcooked
 from scripts_utils import Parser
 import diffuser.utils as utils
 
@@ -93,3 +94,5 @@ if __name__ == "__main__":
     for i in range(n_epochs):
         print(f'Epoch {i} / {n_epochs} | {args.savepath}')
         trainer.train(n_train_steps=args.n_steps_per_epoch)
+        # if i % 2 == 0:
+        #     closed_loop_overcooked()

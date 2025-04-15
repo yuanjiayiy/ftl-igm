@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=overcooked
-#SBATCH --partition=gpu-l40
+#SBATCH --partition=gpu-l40s
 #SBATCH --account=socialrl
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G

@@ -5,13 +5,14 @@ from torch.utils.data import Dataset
 
 class HDF5Dataset(Dataset):
     def __init__(self, args, split):
-        self.hdf5_path = args.dataset_file
+        self.hdf5_path = args.dataset_path
+        self.dataset_name = self.hdf5_path.split("/")[-2]
         self.f = h5py.File(self.hdf5_path, "r")
         self.dset = self.f[split]
         self.length = self.dset["obs"].shape[0]
 
         self.episode_length = args.episode_length
-        self.chunk_length = args.vae_chunk_length or args.episode_length
+        self.chunk_length = args.chunk_length or args.episode_length
         self.inp_outp_seq = "same"
         self.reset()
     

@@ -84,6 +84,9 @@ class TemporalUnet(nn.Module):
             nn.Linear(dim * 4, dim),
         )
 
+        self.history_encoder = ConvLSTMModel(hidden_dim=dim, output_dim=obs_cond_dim)
+        # self.history_encoder2 = SpatiotemporalTransformer(in_channels=obs_cond_dim, embed_dim=dim, num_heads=4)
+
         self.returns_condition = returns_condition
         self.condition_dropout = condition_dropout
         self.calc_energy = calc_energy
@@ -143,7 +146,7 @@ class TemporalUnet(nn.Module):
         resnet18 = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=True)
         self.resnet18 = torch.nn.Sequential(*list(resnet18.children())[:-1])
 
-    def forward(self, x, cond, time, dummy_cond=None, cond_obs=None, cond_im=None, use_dropout=True, force_dropout=False):
+    def forward(self, x, cond, time, dummy_cond=None, cond_obs=None, cond_mask=None, cond_im=None, use_dropout=True, force_dropout=False):
         '''
             x : [ batch x horizon x transition ] # full trajectory where first state matches cond_obs
             cond: [ batch x cond_dim ] # text embedding
@@ -151,10 +154,15 @@ class TemporalUnet(nn.Module):
             cond_obs: [ batch x transition ] # first state
             cond_im: [ batch x C x H x W ] # first state
         '''
-
+        # print("x.shape", x.shape, x.dtype, "cond.shape", cond.shape, cond.dtype, "dummy_cond.shape", dummy_cond.shape, dummy_cond.dtype,
+        #       "cond_obs.shape", cond_obs.shape, cond_obs.dtype, "time.shape", time.shape)
+        
         x = einops.rearrange(x, 'b h t -> b t h')
+        # import pdb; pdb.set_trace()
 
         t = self.time_mlp(time)
+        cond_obs_encoded = self.history_encoder(cond_obs)
+        # cond_obs_encoded2 = self.history_encoder2(cond_obs, cond_mask)
 
         input_cond = cond #concept embedding
         if self.returns_condition:
@@ -165,8 +173,8 @@ class TemporalUnet(nn.Module):
             if force_dropout:
                 input_cond = dummy_cond #replace with fake cond
         if cond_im is not None:
-            cond_obs = torch.cat([cond_obs, self.resnet18(cond_im).squeeze(2,3)], dim=-1)
-        t = torch.cat([t, input_cond, cond_obs], dim=-1)
+            cond_im = torch.cat([cond_obs, self.resnet18(cond_im).squeeze(2,3)], dim=-1)
+        t = torch.cat([t, input_cond, cond_obs_encoded], dim=-1)
         h = []
 
         for resnet, resnet2, attn, downsample in self.downs:
@@ -175,7 +183,8 @@ class TemporalUnet(nn.Module):
             x = attn(x)
             h.append(x)
             x = downsample(x)
-        
+            
+
         x = self.mid_block1(x, t)
         x = self.mid_attn(x)
         x = self.mid_block2(x, t)
@@ -281,3 +290,72 @@ class MLPnet(nn.Module):
             return out
 
 
+class ConvLSTMModel(nn.Module):
+    def __init__(self, hidden_dim=128, output_dim=10):
+        super(ConvLSTMModel, self).__init__()
+        
+        # Conv2D encoder to process spatial input [C, W, H]
+        self.spatial_encoder = nn.Sequential(
+            nn.Conv2d(in_channels=26, out_channels=32, kernel_size=3, padding=1),  # [B*T, 32, 8, 5]
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),                            # [B*T, 64, 8, 5]
+            nn.ReLU(),
+            nn.AdaptiveMaxPool2d((1, 1)),                                           # [B*T, 64, 1, 1]
+            nn.Flatten(),                                                           # [B*T, 64]
+        )
+        
+        self.lstm = nn.LSTM(input_size=64, hidden_size=hidden_dim, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, output_dim)
+
+    def forward(self, x):
+
+        B, T, W, H, C = x.shape  # [batch, time, width, height, channel]
+        
+        # Reshape to [B*T, C, W, H] for Conv2d
+        x = x.permute(0, 1, 4, 2, 3).contiguous()      # [B, T, C, W, H]
+        x = x.view(B * T, C, W, H)                     # [B*T, C, W, H]
+
+        # Spatial encoder (Conv2d layers)
+        x = self.spatial_encoder(x)                   # [B*T, 64]
+
+        # Reshape back to [B, T, 64] for LSTM
+        x = x.view(B, T, -1)
+
+        # LSTM
+        lstm_out, (hn, _) = self.lstm(x)
+        output = self.fc(hn[-1])                      # Use last hidden state
+        return output
+
+
+class SpatiotemporalTransformer(nn.Module):
+    def __init__(self, in_channels=26, embed_dim=128, num_heads=4):
+        super().__init__()
+        self.embed = nn.Linear(in_channels, embed_dim)
+        self.pos_embed = nn.Parameter(torch.randn(32, 8, 5, embed_dim))  # [T, H, W, D]
+        self.attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+        self.output_proj = nn.Linear(embed_dim, embed_dim)
+
+    def forward(self, cond_inputs, cond_masks):
+        """
+        cond_inputs: [B, T, H, W, C]
+        cond_masks: [B, T], 1 = real, 0 = pad
+        """
+        B, T, H, W, C = cond_inputs.shape
+        x = self.embed(cond_inputs)  # [B, T, H, W, D]
+
+        # Add positional encoding (broadcasted across batch)
+        x = x + self.pos_embed[:T, :H, :W]  # [B, T, H, W, D]
+
+        # Flatten T x H x W into sequence
+        x = x.view(B, T * H * W, -1)  # [B, L, D], L = T*H*W
+
+        # Build attention mask (mask invalid time steps across the whole spatial patch)
+        # cond_masks: [B, T] → [B, T, 1, 1] → broadcast to [B, T, H, W]
+        mask = cond_masks[:, :, None, None].expand(B, T, H, W).reshape(B, T * H * W)  # [B, L]
+        attn_mask = ~mask.bool()  # True = ignore (padded)
+
+        # Multi-head attention expects [B, L, D]
+        x_attn, _ = self.attn(x, x, x, key_padding_mask=attn_mask)  # [B, L, D]
+        x_out = self.output_proj(x_attn)  # optional projection
+
+        return x_out.view(B, T, H, W, -1)  # return to original 2D+time layout

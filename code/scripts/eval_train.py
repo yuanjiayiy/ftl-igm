@@ -203,6 +203,49 @@ def closed_loop_highway(eval_dir, diffusion, dataset, renderer, scenarios, devic
         highway.get_acc(scenario_text, trajs_rew, trajs_info, trajs_done, trajs_obs)
         env.close()
 
+def closed_loop_overcooked(basedir, diffusion, dataset, renderer, dummy_cond, all_cond_features, all_cond_init, all_cond_text, condition_guidance_w, device, n_samples_plot=2):
+    eval_dir = osp.join(basedir, 'eval_train_closed_loop')
+    env_name = "overcooked_ai"
+    env = gym.make(env_name, render_mode="rgb_array")
+    if not osp.isdir(eval_dir): os.makedirs(eval_dir)
+    all_samples, all_inits = [], []
+    for init_s_idx, (cond_features, cond_init, cond_text) in enumerate(zip(all_cond_features, all_cond_init, all_cond_text)): 
+        plot_dir = osp.join(eval_dir, f'acts_{init_s_idx}')
+        if not osp.isdir(plot_dir): os.mkdir(plot_dir)    
+        init_s = dataset.unnormalize(cond_init).squeeze()
+        all_inits.append(init_s)
+        env.load_scene(init_s)
+        final_traj = [env._get_obs().astype(np.float32)]
+        env.mode = 'train'
+        env.cond_text = cond_text
+        for t in range(1,dataset.horizon):
+            init_s = th.tensor(dataset.normalize_init(final_traj[-1]).reshape(1,-1)).to(device) #current obs
+            with th.no_grad():
+                samples = diffusion.p_sample_loop(
+                    shape=(1, dataset.horizon, dataset.observation_dim),
+                    cond=th.tensor(cond_features).to(device),
+                    dummy_cond=dummy_cond.to(device),
+                    cond_obs=init_s,
+                    compose=False,
+                )
+            s_t_unnorm = final_traj[-1][:dataset.observation_dim]
+            s_t_1_unnorm = dataset.unnormalize(to_np(samples.trajectories)[0][min(t+5,dataset.horizon-1)]).squeeze()
+            pred_force = (s_t_1_unnorm - s_t_unnorm)[[0,2]]
+            obs, done = env.step(pred_force)
+            final_traj.append(obs.astype(np.float32))
+            AGENT.plot_traj(np.array(final_traj), final_traj[0], osp.join(plot_dir,f'inv_model_obs.png'), cond_text=cond_text) #updating obs
+            AGENT.plot_traj(dataset.unnormalize(to_np(samples.trajectories)).squeeze(), final_traj[0], osp.join(plot_dir,f'inv_model_diffusion_{t}.png'), s_t_1_unnorm, cond_text=cond_text) #diffusion guidance
+            if done: break
+        all_samples.append(final_traj)
+        if init_s_idx >= n_samples_plot: break
+    # save, render, eval
+    eval_train_gen_path = osp.join(eval_dir, f'eval_train_w_{condition_guidance_w}_acts.pkl')
+    with open(eval_train_gen_path, 'wb') as f: pickle.dump([all_samples, all_inits, all_cond_text], f)
+    render_path = osp.join(eval_dir, f'eval_train_w_{condition_guidance_w}_acts.png')
+    renderer.composite(render_path, [np.array(samp) for samp in all_samples][:n_samples_plot], np.array(all_cond_text)[:n_samples_plot], np.array(all_inits)[:n_samples_plot])
+    AGENT.get_train_acc(all_samples, all_inits, all_cond_text)
+
+
 def open_loop_robot(basedir, diffusion, dataset, renderer, condition_guidance_w, device, n_demos_eval=10):
     all_samples, all_cond_text, all_inits, all_init_ims, all_gt = [], [], [], [], []
     for _ in range(n_demos_eval):
