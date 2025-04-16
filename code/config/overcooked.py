@@ -97,7 +97,7 @@ base = {
         'discount': 0.997,
 
         ## loading
-        'diffusion_loadpath': 'f:diffusion/defaults_H{horizon}_T{n_diffusion_steps}/YYYYMMDD-HHMMSS', #TODO update path
+        'diffusion_loadpath': 'f:diffusion/defaults_H{horizon}_T{n_diffusion_steps}/20250415-114236', #TODO update path
         'diffusion_epoch': 'latest',
         'value_epoch': 'latest',
 

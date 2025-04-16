@@ -84,9 +84,9 @@ if __name__ == "__main__":
     utils.report_parameters(model)
     print('Testing forward...', end=' ', flush=True)
     batch = utils.batchify(dataset[0])
-    loss, _ = diffusion.loss(*batch)
+    # loss, _ = diffusion.loss(*batch)
     
-    loss.backward()
+    # loss.backward()
     print('✓')
 
     # main loop

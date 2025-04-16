@@ -9,6 +9,12 @@ import copy
 
 from transformers import T5Tokenizer, T5EncoderModel
 
+# player identity would be <env_name><policy_name><subpolicy_name><index>
+# env_name: "counter_circuit_o_1order" -> 00
+# policy_name: "mep" -> 00
+# subpolicy_name: "init" "mid" "final" -> 00, 01, 02
+# index: 0, 1, 2, ... -> 00, 01, 02, ...
+# for example, "counter_circuit_o_1order_mep mep2_final" -> 00000202
 policy_name_dict = {"counter_circuit_o_1order_mep": 
                     ['mep1_final', 'mep1_init', 'mep1_mid', 'mep2_final', 'mep2_init', 'mep2_mid', 'mep3_final', 'mep3_init', 'mep3_mid', 'mep4_final', 'mep4_init', 'mep4_mid', 'mep5_final', 'mep5_init', 'mep5_mid', 'mep6_final', 'mep6_init', 'mep6_mid', 'mep7_final', 'mep7_init', 'mep7_mid', 'mep8_final', 'mep8_init', 'mep8_mid']}
 
@@ -116,12 +122,14 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         self.max_path_length = args.max_path_length
         self.use_padding = args.use_padding
 
-        self.dummy_cond = self.generate_representation('')
-        self.conditions = [self.generate_representation(policy_name_dict[self.dataset.dataset_name][agent2_policy_id])
+        self.dummy_cond = np.int64(0)
+        self.policy_names = [policy_name_dict[self.dataset.dataset_name][agent2_policy_id]
                            for agent1_policy_id, agent2_policy_id in self.policy_id]
+        self.num_embeddings, self.conditions = self.convert_to_indices(self.policy_names)
+        
         
         self.action_dim = 1
-        self.cond_dim = 768 # input to model init, T5 self.conditions
+        self.cond_dim = 8 # input to model init, T5 self.conditions
 
         
             
@@ -143,6 +151,19 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         cond = tokenizer(str, return_tensors="pt").input_ids.to(device)
         cond = model(cond).last_hidden_state.mean(axis=1).detach().cpu().numpy()[0]
         return cond
+    
+    def convert_to_indices(self, tokens):
+        # Build vocabulary (token -> index)
+        token_to_id = {}
+        for token in tokens:
+            if token not in token_to_id:
+                token_to_id[token] = len(token_to_id)
+
+        # Convert tokens to indices
+        indices = [token_to_id[token] for token in tokens]
+
+        num_embeddings = len(token_to_id)
+        return num_embeddings, indices
 
     def normalize(self):
         '''
@@ -212,7 +233,7 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         end = start + self.horizon
         trajectories = np.concatenate((obs[start:end, 0].reshape(self.horizon, -1), actions[start:end, 0]), axis=-1).astype(np.float32)
         policy_pairs = (policy_name_dict[self.dataset.dataset_name][policy_id[0]], policy_name_dict[self.dataset.dataset_name][policy_id[1]])
-        conditions = self.conditions[idx]
+        conditions = self.policy_id[idx][1]
         conditions_obs = obs[:start, 0]
         # conditions_obs: valid_len x obs_dim
         valid_len = start

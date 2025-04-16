@@ -62,6 +62,7 @@ class TemporalUnet(nn.Module):
         condition_dropout=0.1,
         calc_energy=False,
         kernel_size=5,
+        num_embeddings=100,
     ):
         super().__init__()
 
@@ -86,6 +87,7 @@ class TemporalUnet(nn.Module):
 
         self.history_encoder = ConvLSTMModel(hidden_dim=dim, output_dim=obs_cond_dim)
         # self.history_encoder2 = SpatiotemporalTransformer(in_channels=obs_cond_dim, embed_dim=dim, num_heads=4)
+        self.embedding = nn.Embedding(num_embeddings=num_embeddings, embedding_dim=8)
 
         self.returns_condition = returns_condition
         self.condition_dropout = condition_dropout
@@ -163,8 +165,9 @@ class TemporalUnet(nn.Module):
         t = self.time_mlp(time)
         cond_obs_encoded = self.history_encoder(cond_obs)
         # cond_obs_encoded2 = self.history_encoder2(cond_obs, cond_mask)
-
-        input_cond = cond #concept embedding
+        
+        input_cond = cond
+        # print(input_cond.shape, dummy_cond.shape, cond_obs_encoded.shape)
         if self.returns_condition:
             assert dummy_cond is not None
             if use_dropout:
@@ -174,6 +177,11 @@ class TemporalUnet(nn.Module):
                 input_cond = dummy_cond #replace with fake cond
         if cond_im is not None:
             cond_im = torch.cat([cond_obs, self.resnet18(cond_im).squeeze(2,3)], dim=-1)
+        
+        input_cond = self.embedding(input_cond.long())
+        # print(input_cond.shape, dummy_cond.shape, cond_obs_encoded.shape)   
+        # import pdb; pdb.set_trace()
+        # print(t.shape, input_cond.shape, cond_obs_encoded.shape)
         t = torch.cat([t, input_cond, cond_obs_encoded], dim=-1)
         h = []
 
