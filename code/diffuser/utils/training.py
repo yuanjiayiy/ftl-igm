@@ -126,10 +126,10 @@ class Trainer(object):
             if self.step % self.log_freq == 0:
                 infos_str = ' | '.join([f'{key}: {val:8.4f}' for key, val in infos.items()])
                 print(f'{self.step}: {loss:8.4f} | {infos_str} | t: {timer():8.4f}', flush=True)
-            # if self.step == 0 and self.sample_freq and not invert_model:
-            #     self.render_reference(self.n_reference)
-            # if self.sample_freq and self.step % self.sample_freq == 0 and not invert_model:
-            #     self.render_samples()
+            if self.step == 0 and self.sample_freq and not invert_model:
+                self.render_reference(self.n_reference)
+            if self.sample_freq and self.step % self.sample_freq == 0 and not invert_model:
+                self.render_samples()
             self.step += 1
         return losses
 
@@ -612,6 +612,7 @@ class TrainerROBOT(Trainer):
         self.renderer.composite(os.path.join(self.logdir, f'sample-{self.step}-gt.png'), np.array(all_gt_samples), np.array(all_cond_text), np.array(all_inits), np.array(all_init_ims))
 
 #############################################
+from scripts.overcooked_sample_renderer import OvercookedSampleRenderer
 class TrainerOvercooked(Trainer):
     def __init__(
         self,
@@ -652,3 +653,44 @@ class TrainerOvercooked(Trainer):
             n_reference=n_reference,
             bucket=bucket,
         )
+    def render_samples(self, batch_size=2, n_samples=8):
+        renderer = OvercookedSampleRenderer()
+        video_dir = os.path.join(self.logdir, "sample_videos")
+        os.makedirs(video_dir, exist_ok=True)
+
+        for i in range(n_samples):
+            sample = self.dataset.__getitem__(0)
+            print(dir(sample))
+            samples = self.ema_model(
+                cond=torch.unsqueeze(to_torch(sample.conditions).to(self.device),0),
+                dummy_cond=torch.unsqueeze(to_torch(sample.dummy_cond).to(self.device),0),
+                cond_obs=torch.unsqueeze(to_torch(sample.conditions_obs).to(self.device),0),
+            )
+            trajs = to_np(samples.trajectories[0])
+
+            frames = []
+            for obs in trajs:
+                frames.append(renderer.convert_flatten_map(obs))
+            grid = renderer.extract_grid_from_obs(frames[0])
+            
+            video_path = os.path.join(video_dir, f"sample_{i}_step_{self.step}.mp4")
+            renderer.render_trajectory_video(frames, grid, output_dir=video_dir, video_path=video_path, fps=1)
+            print(f"Saved Reference Trajectory Video to {video_path}")
+    def render_reference(self, batch_size=10):
+        renderer = OvercookedSampleRenderer()
+        dataloader_tmp = cycle(torch.utils.data.DataLoader(
+            self.dataset, batch_size=batch_size, num_workers=0, shuffle=True, pin_memory=True
+        ))
+        batch = dataloader_tmp.__next__()
+        dataloader_tmp.close()
+        observations = to_np(batch.trajectories)
+        video_dir = os.path.join(self.logdir, "reference_videos")
+        os.makedirs(video_dir, exist_ok=True)
+        for i, traj in enumerate(observations):
+            frames = []
+            for obs in traj:
+                frames.append(renderer.convert_flatten_map(obs))
+            grid = renderer.extract_grid_from_obs(frames[0])
+            video_path = os.path.join(video_dir, f"reference_traj_{i}_step_{self.step}.mp4")
+            renderer.render_trajectory_video(frames, grid, output_dir=video_dir, video_path=video_path, fps=1)
+            print(f"Saved Reference Trajectory Video {i} to {video_path}")
