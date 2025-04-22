@@ -2,6 +2,7 @@ import os
 import copy
 import numpy as np
 import torch
+import wandb
 import random
 from random import sample
 from transformers import T5Tokenizer, T5EncoderModel
@@ -126,6 +127,10 @@ class Trainer(object):
             if self.step % self.log_freq == 0:
                 infos_str = ' | '.join([f'{key}: {val:8.4f}' for key, val in infos.items()])
                 print(f'{self.step}: {loss:8.4f} | {infos_str} | t: {timer():8.4f}', flush=True)
+                if wandb.run is not None:
+                    wandb.log({
+                        'step': self.step,
+                        'loss': loss.item()})
             # if self.step == 0 and self.sample_freq and not invert_model:
             #     self.render_reference(self.n_reference)
             # if self.sample_freq and self.step % self.sample_freq == 0 and not invert_model:
@@ -146,6 +151,13 @@ class Trainer(object):
         savepath = os.path.join(self.logdir, f'state_{epoch}.pt')
         torch.save(data, savepath)
         print(f'[ utils/training ] Saved model to {savepath}', flush=True)
+
+        # Log to wandb as an artifact
+        if wandb.run is not None:
+            artifact = wandb.Artifact('model-checkpoints', type='model')
+            artifact.add_file(savepath)
+            wandb.log_artifact(artifact)
+            print(f'[ utils/training ] Uploaded model checkpoint to wandb', flush=True)
         
 
     def load(self, epoch):
@@ -179,6 +191,28 @@ class Trainer(object):
             generate and render samples
         '''
         pass
+
+    def eval(self, n_eval_steps):
+        '''
+            evaluate model on dataset
+        '''
+        losses = []
+        accuracies = []
+        timer = Timer()
+        for _ in range(n_eval_steps):
+            batch = next(self.dataloader)
+            batch = batch_to_device(batch)
+            loss, infos = self.model.loss(*batch)
+            losses.append(round(loss.item(), 4))
+            accuracies.append(infos["accuracy"])
+
+        mean_loss = sum(losses) / len(losses)
+        mean_acc = sum(accuracies) / len(accuracies)
+
+        infos_str = ' | '.join([f'{key}: {val:8.4f}' for key, val in infos.items()])
+        print(f'Eval {self.step}: {mean_loss:8.4f} | {mean_acc:8.4f} | {infos_str} | t: {timer():8.4f}', flush=True)
+        wandb.log({"eval_loss": mean_loss, "eval_accuracy": mean_acc})
+        return losses
 
 
 #############################################

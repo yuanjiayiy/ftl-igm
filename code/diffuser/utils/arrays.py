@@ -38,7 +38,7 @@ def batchify(batch):
 			1) converting np arrays to torch tensors and
 			2) and ensuring that everything has a batch dimension
 	'''
-	fn = lambda x: to_torch(x[None])
+	fn = lambda x: to_torch(x[None], dtype=torch.from_numpy(x).dtype)
 
 	batched_vals = []
 	for field in batch._fields:

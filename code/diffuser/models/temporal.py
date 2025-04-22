@@ -156,8 +156,8 @@ class TemporalUnet(nn.Module):
             cond_obs: [ batch x transition ] # first state
             cond_im: [ batch x C x H x W ] # first state
         '''
-        # print("x.shape", x.shape, x.dtype, "cond.shape", cond.shape, cond.dtype, "dummy_cond.shape", dummy_cond.shape, dummy_cond.dtype,
-        #       "cond_obs.shape", cond_obs.shape, cond_obs.dtype, "time.shape", time.shape)
+        print("x.shape", x.shape, x.dtype, "cond.shape", cond.shape, cond.dtype, "dummy_cond.shape", dummy_cond.shape, dummy_cond.dtype,
+              "cond_obs.shape", cond_obs.shape, cond_obs.dtype, "time.shape", time.shape)
         
         x = einops.rearrange(x, 'b h t -> b t h')
         # import pdb; pdb.set_trace()
@@ -181,7 +181,7 @@ class TemporalUnet(nn.Module):
         input_cond = self.embedding(input_cond.long())
         # print(input_cond.shape, dummy_cond.shape, cond_obs_encoded.shape)   
         # import pdb; pdb.set_trace()
-        # print(t.shape, input_cond.shape, cond_obs_encoded.shape)
+        print(t.shape, input_cond.shape, cond_obs_encoded.shape)
         t = torch.cat([t, input_cond, cond_obs_encoded], dim=-1)
         h = []
 

@@ -7,8 +7,6 @@ from ..utils.rendering import *
 import gymnasium as gym
 import copy
 
-from transformers import T5Tokenizer, T5EncoderModel
-
 # player identity would be <env_name><policy_name><subpolicy_name><index>
 # env_name: "counter_circuit_o_1order" -> 00
 # policy_name: "mep" -> 00
@@ -22,12 +20,10 @@ policy_name_dict = {"counter_circuit_o_1order_mep":
 def to_tensor(x, dtype=torch.float, device='cpu'):
     return torch.tensor(x, dtype=dtype, device=device)
 
-Batch = namedtuple('Batch', 'trajectories conditions dummy_cond conditions_obs conditions_mask') #trajectories: output traj, conditions: concept (text embedding), conditions_obs: condition on curr obs (model needs to predict next steps, create batches based on curr obs any t from training demos)
+Batch = namedtuple('Batch', 'observation next_observation action') #trajectories: output traj, conditions: concept (text embedding), conditions_obs: condition on curr obs (model needs to predict next steps, create batches based on curr obs any t from training demos)
 
 has_cuda = torch.cuda.is_available()
 device = torch.device('cpu' if not has_cuda else 'cuda')
-tokenizer = T5Tokenizer.from_pretrained("google/flan-t5-base")
-model = T5EncoderModel.from_pretrained("google/flan-t5-base").to(device)
 
 
 def plot_traj(traj, init_s, save_fig_path, n_vehicles, feat_dim, sample_state=None, cond_text=''):
@@ -97,22 +93,21 @@ def safe_deepcopy_env(obj):
     return result
 
 
-class OvercookedSequenceDataset(torch.utils.data.Dataset):
+class OvercookedInverseDynamicsModelDataset(torch.utils.data.Dataset):
 
-    def __init__(self, args, sample_rate=1):
+    def __init__(self, args, split, sample_rate=1):
 
         dataset_path = args.dataset_path
 
         if dataset_path.endswith("hdf5"):
             from ..utils.hdf5_dataset import HDF5Dataset
-            self.dataset = HDF5Dataset(args, "test") # TODO: change to train later
-            self.observations = np.array(self.dataset.dset["obs"]) # path_num * (path_length + 1) * num_agent * height * width * channels
-            self.actions = np.array(self.dataset.dset["actions"]) # path_num * path_length * num_agent * action_dim (1)
-            self.dones = np.array(self.dataset.dset["dones"]) # path_num * path_length * num_agent
-            self.env_info = np.array(self.dataset.dset["env_info"])
-            self.policy_id = np.array(self.dataset.dset["policy_id"]) # path_num * num_agent (agent1_policy_name, agent2_policy_name)
-            self.rewards = np.array(self.dataset.dset["rewards"]) # path_num * path_length * num_agent * reward_dim (1)
-            import pdb; pdb.set_trace()
+            self.dataset = HDF5Dataset(args, split) # TODO: change to train later
+            self.observations = self.dataset.dset["obs"] # path_num * (path_length + 1) * num_agent * height * width * channels
+            self.actions = self.dataset.dset["actions"] # path_num * path_length * num_agent * action_dim (1)
+            self.dones = self.dataset.dset["dones"] # path_num * path_length * num_agent
+            self.env_info = self.dataset.dset["env_info"]
+            self.policy_id = self.dataset.dset["policy_id"] # path_num * num_agent (agent1_policy_name, agent2_policy_name)
+            self.rewards = self.dataset.dset["rewards"] # path_num * path_length * num_agent * reward_dim (1)
 
         else:
             with open(dataset_path, "rb") as input_file:
@@ -122,17 +117,8 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         self.horizon = args.horizon
         self.max_path_length = args.max_path_length
         self.use_padding = args.use_padding
-
-        self.dummy_cond = np.int64(0)
-        self.policy_names = [policy_name_dict[self.dataset.dataset_name][agent2_policy_id]
-                           for agent1_policy_id, agent2_policy_id in self.policy_id]
-        self.num_embeddings, self.conditions = self.convert_to_indices(self.policy_names)
-        
-        
+        self.agent_idx = args.agent_idx
         self.action_dim = 1
-        self.cond_dim = 8 # input to model init, T5 self.conditions
-
-        
             
         self.observation_dim = np.prod(self.observations[0, 0, 0].shape) # every time step predict the skeleton: n joints x 3D pos
         # self.cond_dim = self.conditions.shape[1] # 768 T5
@@ -145,13 +131,7 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         self.maxs = 255
 
         self.path_lengths = [obs.shape[0] for obs in self.observations]
-        # self.indices = self.make_indices(self.path_lengths, self.horizon)
-        self.normalize()
-    
-    def generate_representation(self,str):
-        cond = tokenizer(str, return_tensors="pt").input_ids.to(device)
-        cond = model(cond).last_hidden_state.mean(axis=1).detach().cpu().numpy()[0]
-        return cond
+        self.indices = self.make_indices(self.path_lengths, 1) # idm model only needs to predict the next step
     
     def convert_to_indices(self, tokens):
         # Build vocabulary (token -> index)
@@ -173,14 +153,14 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         '''
         self.normed_observations = copy.deepcopy(self.observations)
         self.normed_observations = (self.normed_observations - self.mins) / (self.maxs - self.mins + 1e-5) # [ 0, 1 ]
-        self.normed_observations = (self.normed_observations * 2) - 1 # [ -1, 1 ]
+        # self.normed_observations = (self.normed_observations * 2) - 1 # [ -1, 1 ]
         # self.normed_observations = [self.normed_observations[np.sum(self.path_lengths[:i]) if i>0 else 0 : np.sum(self.path_lengths[:i+1])] for i in range(len(self.path_lengths))]
 
 
     def normalize_init(self, init_states):
         """normalize init state"""
         normed_init_states = (np.array(init_states) - self.mins) / (self.maxs - self.mins + 1e-5) # [0,1]
-        normed_init_states = (normed_init_states * 2) - 1 # [-1,1]
+        # normed_init_states = (normed_init_states * 2) - 1 # [-1,1]
         return normed_init_states.astype(np.float32)
 
 
@@ -220,39 +200,19 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
 
 
     def __getitem__(self, idx, eps=1e-4):
-        obs, actions, policy_id = self.dataset.__getitem__(idx)
-        # obs: horizon x 2 x obs_dim
-        # actions: horizon x 2 x action_dim
-        # policy_id: 2
-        # import pdb; pdb.set_trace()
-        H, W, C = obs.shape[2:]
-        obs = self.normalize_init(obs)
+        path, start, end = self.indices[idx]
+
+        observation=self.observations[path, start, self.agent_idx]
+        next_observation=self.observations[path, end, self.agent_idx]
+
+        observation = self.normalize_init(observation).astype(np.float32)
+        next_observation = self.normalize_init(next_observation).astype(np.float32)
         
-        chunk_length, n_agents, action_dim = actions.shape
-        start = random.randint(1, chunk_length - self.horizon)
-        context_len = self.horizon
-        end = start + self.horizon
-        trajectories = np.concatenate((obs[start:end, 0].reshape(self.horizon, -1), actions[start:end, 0]), axis=-1).astype(np.float32)
-        policy_pairs = (policy_name_dict[self.dataset.dataset_name][policy_id[0]], policy_name_dict[self.dataset.dataset_name][policy_id[1]])
-        conditions = self.policy_id[idx][1]
-        conditions_obs = obs[:start, 0]
-        # conditions_obs: valid_len x obs_dim
-        valid_len = start
-        # put state_flatten here maybe?
-        cond_inputs = np.zeros((context_len, H, W, C), dtype=np.float32)
-        cond_masks = np.zeros((context_len), dtype=np.float32)
-        cond_inputs[-valid_len:] = conditions_obs
-        cond_masks[-valid_len:] = 1.0
-        batch = Batch(trajectories, conditions, self.dummy_cond, cond_inputs, cond_masks)
+        batch = Batch(
+            observation=observation,
+            next_observation=next_observation,
+            action=self.actions[path, start, self.agent_idx].astype(np.int64),
+        )
         return batch
-    
-    def pad_history(self, unpadded_past_trajectory):
 
-        unpadded_horizon = unpadded_past_trajectory.shape[0]
-        unpadded_feature_dim = unpadded_past_trajectory.shape[1:]
-
-        padded_past_trajectory = np.zeros((self.horizon, unpadded_feature_dim))
-        padded_past_trajectory[:unpadded_past_trajectory.shape[0], :unpadded_past_trajectory.shape[1]] = unpadded_past_trajectory
-        past_trajectory = padded_past_trajectory.flatten().astype(np.float32)
-        return past_trajectory
 

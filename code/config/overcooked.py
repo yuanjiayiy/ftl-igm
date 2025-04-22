@@ -30,7 +30,8 @@ base = {
         'returns_condition': True,
         'condition_guidance_w': 1.,
         'attention': False,
-        'renderer': 'utils.OvercookedRenderer', 
+        'renderer': 'utils.OvercookedRenderer',
+        'agent_idx': 0,
 
         ## dataset
         'loader': 'datasets.OvercookedSequenceDataset',
