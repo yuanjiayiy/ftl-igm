@@ -684,6 +684,7 @@ class TrainerOvercooked(Trainer):
         batch = dataloader_tmp.__next__()
         dataloader_tmp.close()
         observations = to_np(batch.trajectories)
+        conditions = to_np(batch.conditions)
         video_dir = os.path.join(self.logdir, "reference_videos")
         os.makedirs(video_dir, exist_ok=True)
         for i, traj in enumerate(observations):
@@ -691,6 +692,6 @@ class TrainerOvercooked(Trainer):
             for obs in traj:
                 frames.append(renderer.convert_flatten_map(obs))
             grid = renderer.extract_grid_from_obs(frames[0])
-            video_path = os.path.join(video_dir, f"reference_traj_{i}_step_{self.step}.mp4")
+            video_path = os.path.join(video_dir, f"reference_traj_{i}_step_{self.step}_agent_id_{conditions[i]}.mp4")
             renderer.render_trajectory_video(frames, grid, output_dir=video_dir, video_path=video_path, fps=1)
-            print(f"Saved Reference Trajectory Video {i} to {video_path}")
+            print(f"Saved Reference Trajectory Video {i} to {video_path} with condition: {conditions[i]}")
