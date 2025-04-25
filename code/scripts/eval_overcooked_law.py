@@ -113,7 +113,8 @@ def full_horizon_eval(args, basedir, diffusion, dataset, idm, policy, device, vi
     
     all_metrics = []
     episode_rewards = []
-    agent_id = args.agent_id if hasattr(args, 'agent_id') else 5
+    # agent_id = args.agent_id if hasattr(args, 'agent_id') else 5
+    agent_id = 24
 
     for episode in range(eval_episodes):
         print(f"Starting episode {episode+1}/{eval_episodes}")
@@ -138,7 +139,7 @@ def full_horizon_eval(args, basedir, diffusion, dataset, idm, policy, device, vi
         max_steps = args.max_steps if hasattr(args, 'max_steps') else 400
         frames = [[obs[i][0]] for i in range(n_envs)]
 
-        while not done and steps < max_steps:
+        while not done and steps <= max_steps:
             eval_actions = np.zeros((n_envs, 32, 2, 1), dtype=np.int64)  # Assuming shape (envs, 32 steps, agents, action_dim)
             ego_obs_lst = [dataset.normalize_init(obs[e][0]) for e in range(n_envs)]
 
@@ -189,17 +190,17 @@ def full_horizon_eval(args, basedir, diffusion, dataset, idm, policy, device, vi
             # Now step through the environment using the 32-step plan
             plan_horizon = min(dataset.horizon, max_steps - steps)
             for t in range(plan_horizon):
-                # Get current obs for cooperator and generate its action
-                cooperator_obs_lst = [obs[e][1] for e in range(n_envs)]
-                cooperator_obs = np.stack(cooperator_obs_lst, axis=0)
+                # Get current obs for partner and generate its action
+                partner_obs_lst = [obs[e][1] for e in range(n_envs)]
+                partner_obs = np.stack(partner_obs_lst, axis=0)
 
-                cooperator_action = policy.step(
-                    cooperator_obs,
+                partner_action = policy.step(
+                    partner_obs,
                     [(e, 1) for e in range(n_envs)],
                     deterministic=True,
                 )
-                eval_actions[:, t, 1] = cooperator_action  # Fill cooperator action for step t
-                print(f"cooperator action: ", cooperator_action)
+                eval_actions[:, t, 1] = partner_action  # Fill partner action for step t
+                print(f"partner action: ", partner_action)
 
                 # Step env with actions at time t
                 step_actions = eval_actions[:, t]
@@ -254,7 +255,7 @@ def full_horizon_eval(args, basedir, diffusion, dataset, idm, policy, device, vi
 
     print(f"Evaluation complete!")
     print(f"Agent 0 (Diffusion+IDM) mean reward: {mean_reward:.2f} ± {std_reward:.2f}")
-    print(f"Agent 1 (Cooperator) mean reward: {coop_mean_reward:.2f} ± {coop_std_reward:.2f}")
+    print(f"Agent 1 (Partner) mean reward: {coop_mean_reward:.2f} ± {coop_std_reward:.2f}")
     print(f"Team total mean reward: {total_mean:.2f}")
     
     # Save all metrics to file
@@ -304,7 +305,7 @@ if __name__ == "__main__":
     os.environ["layout"] = args.layout_name
     args.env_name = "Overcooked"
     population_yaml_path = args.population_yaml_path
-    policy, featurize_type = get_agent(population_yaml_path, "sp10_init", "cpu")
+    policy, featurize_type = get_agent(population_yaml_path, "sp10_final", "cpu")
     print("featurize_type: ", featurize_type)
 
     idm_path = args.idm_loadpath
