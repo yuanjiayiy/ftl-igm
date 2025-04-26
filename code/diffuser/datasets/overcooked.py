@@ -216,34 +216,71 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return self.dataset.__len__()
-
-
-    def __getitem__(self, idx, eps=1e-4):
+    
+    
+    def __getitem__(self, idx, condition_single_input=True):
         obs, actions, policy_id = self.dataset.__getitem__(idx)
-        # obs: horizon x 2 x obs_dim
-        # actions: horizon x 2 x action_dim
-        # policy_id: 2
-        # import pdb; pdb.set_trace()
-        H, W, C = obs.shape[2:]
+        # obs: horizon x agent_num (2) x H x W x C
+        # actions: horizon x 2 x action dim (1) 
+        # policy : 2 (tuple)
+    
+        T, _, H, W, C = obs.shape # Time, Agent, Height, Width, Channel 
         obs = self.normalize_init(obs)
-        
-        chunk_length, n_agents, action_dim = actions.shape
-        start = random.randint(1, chunk_length - self.horizon)
-        context_len = self.horizon
+
+        # Get Ego Agent Observation (Agent ID  = 0)
+        start = random.randint(1, T - self.horizon)
         end = start + self.horizon
-        trajectories = np.concatenate((obs[start:end, 0].reshape(self.horizon, -1), actions[start:end, 0]), axis=-1).astype(np.float32)
-        policy_pairs = (policy_name_dict[self.dataset.dataset_name][policy_id[0]], policy_name_dict[self.dataset.dataset_name][policy_id[1]])
-        conditions = self.policy_id[idx][1]
-        conditions_obs = obs[:start, 0]
-        # conditions_obs: valid_len x obs_dim
-        valid_len = start
-        # put state_flatten here maybe?
-        cond_inputs = np.zeros((context_len, H, W, C), dtype=np.float32)
-        cond_masks = np.zeros((context_len), dtype=np.float32)
+        trajectories = obs[start:end, 0]
+        
+        # Condition on Past Trajectory or Previous Start State
+        conditions_obs = obs[start-1, 0] if condition_single_input else obs[:start, 0]
+
+        # Condition on Partner (Agent ID = 1)
+        conditions = policy_id[1]
+
+        # Create a Mask for Valid Condition Observations
+        valid_len = 1 if condition_single_input else start
+        cond_inputs = np.zeros((self.horizon, H, W, C), dtype=np.float32)
+        cond_masks = np.zeros((self.horizon), dtype=np.float32)
         cond_inputs[-valid_len:] = conditions_obs
         cond_masks[-valid_len:] = 1.0
-        batch = Batch(trajectories, conditions, self.dummy_cond, cond_inputs, cond_masks)
-        return batch
+
+        # Trajectory Shape: (Horizon, H, W, C)
+        # Conditions Shape : (1)
+        # Condition Inputs: (valid_len, H, W, C)
+        # Condition Masks : (valid_len,)
+
+        Batch(trajectories, conditions, self.dummy_cond, cond_inputs, cond_masks)
+
+
+    # def __getitem__(self, idx, eps=1e-4):
+    #     obs, actions, policy_id = self.dataset.__getitem__(idx)
+    #     # obs: horizon x 2 x obs_dim
+    #     # actions: horizon x 2 x action_dim
+    #     # policy_id: 2
+    #     # import pdb; pdb.set_trace()
+    #     H, W, C = obs.shape[2:]
+    #     obs = self.normalize_init(obs)
+        
+    #     chunk_length, n_agents, action_dim = actions.shape
+    #     start = random.randint(1, chunk_length - self.horizon)
+    #     context_len = self.horizon
+    #     end = start + self.horizon
+    #     trajectories = np.concatenate((obs[start:end, 0].reshape(self.horizon, -1), actions[start:end, 0]), axis=-1).astype(np.float32)
+    #     policy_pairs = (policy_name_dict[self.dataset.dataset_name][policy_id[0]], policy_name_dict[self.dataset.dataset_name][policy_id[1]])
+    #     conditions = self.policy_id[idx][1]
+    #     conditions_obs = obs[:start, 0]
+    #     # conditions_obs: valid_len x obs_dim
+    #     valid_len = start
+    #     # put state_flatten here maybe?
+    #     cond_inputs = np.zeros((context_len, H, W, C), dtype=np.float32)
+    #     cond_masks = np.zeros((context_len), dtype=np.float32)
+    #     cond_inputs[-valid_len:] = conditions_obs
+    #     cond_masks[-valid_len:] = 1.0
+
+    #     print(f"Lawrence; Utilizing the following policy_id {self.policy_id[idx]}")
+    #     batch = Batch(trajectories, conditions, self.dummy_cond, cond_inputs, cond_masks)
+    #     return batch
     
     def pad_history(self, unpadded_past_trajectory):
 
