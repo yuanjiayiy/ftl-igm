@@ -108,6 +108,7 @@ class OvercookedInverseDynamicsModelDataset(torch.utils.data.Dataset):
             self.env_info = self.dataset.dset["env_info"]
             self.policy_id = self.dataset.dset["policy_id"] # path_num * num_agent (agent1_policy_name, agent2_policy_name)
             self.rewards = self.dataset.dset["rewards"] # path_num * path_length * num_agent * reward_dim (1)
+            import pdb; pdb.set_trace()
 
         else:
             with open(dataset_path, "rb") as input_file:

@@ -70,7 +70,7 @@ if __name__ == "__main__":
     
     obs = torch.randn(32, 8, 5, 26).to(args.device)       # batch of 32
     next_obs = torch.randn(32, 8, 5, 26).to(args.device)
-    logits = model(obs, next_obs)        # output shape: (32, 1) if 1 action
+    logits = model(obs, next_obs)        # output shape: (32, 6) if 6 action
     
     idm = model
     trainer = trainer_config(idm, dataset, renderer)

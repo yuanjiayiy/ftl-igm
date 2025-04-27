@@ -32,17 +32,26 @@ if __name__ == "__main__":
     action_dim = dataset.action_dim
 
     # model & trainer
+
     model_config = utils.Config(
         args.model,
         savepath=(args.savepath, 'model_config.pkl'),
-        horizon=args.horizon,
-        transition_dim=observation_dim + action_dim, #output
-        cond_dim=dataset.cond_dim,
-        obs_cond_dim=dataset.obs_cond_dim, #input
-        dim_mults=args.dim_mults,
-        attention=args.attention,
         device=args.device,
     )
+
+    # model_config = utils.Config(
+    #     args.model,
+    #     savepath=(args.savepath, 'model_config.pkl'),
+    #     horizon=args.horizon,
+    #     transition_dim=observation_dim + action_dim, #output
+    #     cond_dim=dataset.cond_dim,
+    #     obs_cond_dim=dataset.obs_cond_dim, #input
+    #     dim_mults=args.dim_mults,
+    #     attention=args.attention,
+    #     device=args.device,
+    # )
+    
+    
     diffusion_config = utils.Config(
         args.diffusion,
         savepath=(args.savepath, 'diffusion_config.pkl'),

@@ -18,7 +18,7 @@ logbase = 'logs'
 base = {
     'diffusion': {
         ## model
-        'model': 'models.TemporalUnet',
+        'model': 'models.UnetMW',
         'diffusion': 'models.GaussianDiffusion',
         'horizon': 32,
         'n_diffusion_steps': 100,
