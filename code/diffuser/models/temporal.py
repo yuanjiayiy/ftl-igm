@@ -4,6 +4,8 @@ import einops
 from einops.layers.torch import Rearrange
 from torch.distributions import Bernoulli
 from diffuser.utils import to_device
+import torch.nn.functional as F
+
 
 
 from .helpers import (
@@ -376,9 +378,10 @@ from einops import repeat, rearrange
 class UnetMW(nn.Module):
     def __init__(self,
                 dim_mults=(1, 2, 4, 8),
+                H=8, W=5, C=26,
                 *args, **kwargs):
         super(UnetMW, self).__init__()
-        self.dim_mults = (1,2)
+        self.dim_mults = (1, 2)
         self.num_classes = 24 # 24 Partner Agent Policies for Counter Circuit
         self.task_tokens = False # Use Num Classes Instead
         self.dropout = 0.1 # Dropout for the ResBlock
@@ -393,21 +396,16 @@ class UnetMW(nn.Module):
             "use_fp16": False,
             "num_head_channels": 32,
         }
-        self.H, self.W, self.C = 8, 6, 26
-        self.unet = UNetModel(
-            image_size=(self.H,self.W),
-            in_channels=self.C*2, #26 Obs Channels + 26 Conditional Obs Channels
-            out_channels=self.C, # Return just 26 channels
-            dropout=self.dropout,
-            num_classes= self.num_classes,
-            task_tokens=self.task_tokens,
-            channel_mult=self.dim_mults,
-            **self.unet_params,
-        )
-    def _init_unet(self,H,W,C):
         self.H, self.W, self.C = H, W, C
+        init_H_pad = H + (H % 2)
+        init_W_pad = W + (W % 2)
+        self._init_unet(init_H_pad, init_W_pad, C)
+    
+    def _init_unet(self,H_pad,W_pad,C):
+        self.H, self.W, self.C = H_pad, W_pad, C
+        print(f"[_init_unet] Initializing UNet with H={H_pad}, W={W_pad}, C={C}")
         self.unet = UNetModel(
-            image_size=(H,W),
+            image_size=(H_pad,W_pad),
             in_channels=C*2, #26 Obs Channels + 26 Conditional Obs Channels
             out_channels=C, # Return just 26 channels
             dropout=self.dropout,
@@ -416,7 +414,26 @@ class UnetMW(nn.Module):
             channel_mult=self.dim_mults,
             **self.unet_params,
         )
-        self.unet.to("cuda:0")
+        self.unet.to('cuda:0' if torch.cuda.is_available() else 'cpu')
+    def pad_even(self, x):
+        """Pads the Height and Width dimensions (dims 2 and 3 for 5D) to be even."""
+        if x.dim() == 5: # Input: (B, F, H, W, C)
+            B, _, H, W, C = x.shape
+            pad_h = (H % 2)
+            pad_w = (W % 2)
+            # Pad tuple order: (pad_dim4_L, R, pad_dim3_L, R, pad_dim2_L, R)
+            pad_tuple = (0, 0, 0, pad_w, 0, pad_h)
+        elif x.dim() == 4: # Input: (B, H, W, C)
+            B, H, W, C = x.shape
+            pad_h = (H % 2)
+            pad_w = (W % 2)
+            # Pad tuple order: (pad_dim3_L, R, pad_dim2_L, R, pad_dim1_L, R)
+            pad_tuple = (0, 0, 0, pad_w, 0, pad_h)
+        else:
+             raise ValueError(f"pad_even expects 4D or 5D tensor, got {x.dim()}D")
+
+        x_padded = F.pad(x, pad_tuple, mode='constant', value=0)
+        return x_padded
 
     def forward(self, x, cond, time, dummy_cond=None, cond_obs=None, cond_mask=None, cond_im=None, force_dropout=False):
         """
@@ -429,34 +446,32 @@ class UnetMW(nn.Module):
         """
         # print("x.shape", x.shape, x.dtype, "cond.shape", cond.shape, cond.dtype, "dummy_cond.shape", dummy_cond.shape, dummy_cond.dtype,
         #       "cond_obs.shape", cond_obs.shape, cond_obs.dtype, "time.shape", time.shape, "cond_mask", cond_mask.shape)
+        
+        if x.dim() != 5:
+            raise ValueError(f"Expected 5D input (batch, horizon, H, W, C). Got: {x.shape}")
+        
         # Initialize Unet
-        if x.dim() == 5:
-            _, Horizon, H, W, C = x.shape
-            if (self.H, self.W, self.C) != (H,W,C):
-                self._init_unet(H,W,C)
-        else:
-            raise NotImplemented(f"x.shape: {x.shape} ")
-        # elif x.dim() == 3: # Batch, Horizon, Flatten Dim
-        #     Batch, Horizon, _ = x.shape
-        #     x = x.view(Batch, Horizon, self.H, self.W, self.C)
-
+        _, _, original_H, original_W, _ = x.shape
+        x = self.pad_even(x)
+        _, Horizon, H, W, C = x.shape
+        if (self.H, self.W, self.C) != (H, W, C):
+            self._init_unet(H, W, C)
 
         # Reshape X for Unet Processing -> (B, C, Horizon, H, W)
         x = rearrange(x, 'b f h w c -> b c f h w')
-        
         # Condition Observation Handling
         if cond_obs is not None:
             cond_obs = cond_obs[cond_mask == 1.0]
-            # print("cond_obs", cond_obs.shape, cond_obs.dim())
             if cond_obs.ndim == 4: # [B, H, W, C] One Image
                 # Reshape to (B, C, 1, H, W)
-                x_cond = rearrange(cond_obs, 'b h w c -> b c 1 h w')
+                x_cond = self.pad_even(cond_obs)
+                x_cond = rearrange(x_cond, 'b h w c -> b c 1 h w')
                 # Replicate Channels Across Horizon --> From AVDC paper
                 x_cond = repeat(x_cond, 'b c 1 h w -> b c f h w', f=Horizon)
             else:
                 raise NotImplemented("Unet Is Not Implemented To Be Conditioned on a History of Observations")
         if force_dropout:
-            x_cond = dummy_cond
+            x_cond = self.pad_even(dummy_cond)
         # Concatenate x, x_cond
         x = torch.cat([x, x_cond], dim=1).to(device="cuda:0")
         
@@ -464,5 +479,9 @@ class UnetMW(nn.Module):
         out = self.unet(x, to_device(time), to_device(cond))
 
         # Restore original dimensions: [B, C, Horizon, H, W] -> [B, Horizon, H, W, C]
-        return rearrange(out, 'b c f h w -> b f h w c')
+        out = rearrange(out, 'b c f h w -> b f h w c')
+
+        # Remove Padding
+        out = out[:, :, :original_H, :original_W, :]
+        return out
     

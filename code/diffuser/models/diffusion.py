@@ -124,7 +124,6 @@ class GaussianDiffusion(nn.Module):
         ## decay loss with trajectory timestep: discount**t
         discounts = discount ** torch.arange(self.horizon, dtype=torch.float)
         discounts = discounts / discounts.mean()
-        print(discounts.shape, dim_weights.shape)
         loss_weights = torch.einsum('h,t->ht', discounts, dim_weights)
 
         ## manually set a0 weight

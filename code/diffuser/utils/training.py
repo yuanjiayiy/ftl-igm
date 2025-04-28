@@ -13,6 +13,8 @@ from diffuser.datasets.AGENT import *
 from diffuser.datasets.mocap import *
 from diffuser.datasets.highway import *
 
+import wandb
+
 
 def cycle(dl):
     while True:
@@ -90,6 +92,20 @@ class Trainer(object):
         self.t5_tokenizer = T5Tokenizer.from_pretrained("google/flan-t5-base")
         self.t5_model = T5EncoderModel.from_pretrained("google/flan-t5-base").to(self.device)
 
+        
+        wandb.init(project="FTL", name=f"run_{self.logdir}")
+        wandb.config.update({
+            "learning_rate": train_lr,
+            "batch_size": train_batch_size,
+            "ema_decay": ema_decay,
+            "diffusion_model": diffusion_model.__class__.__name__,
+            "dataset": dataset.__class__.__name__,
+            "results_folder": results_folder,
+            "gradient_accumulate_every": gradient_accumulate_every,
+            "step_start_ema": step_start_ema,
+            "update_ema_every": update_ema_every,
+        })
+
     def reset_parameters(self):
         self.ema_model.load_state_dict(self.model.state_dict())
 
@@ -126,8 +142,14 @@ class Trainer(object):
             if self.step % self.log_freq == 0:
                 infos_str = ' | '.join([f'{key}: {val:8.4f}' for key, val in infos.items()])
                 print(f'{self.step}: {loss:8.4f} | {infos_str} | t: {timer():8.4f}', flush=True)
-            # if self.step == 0 and self.sample_freq and not invert_model:
-            #     self.render_reference(self.n_reference)
+                log_data = {
+                    'step': self.step,
+                    'loss': loss.item(),
+                    'step_time': timer(),
+                }
+                wandb.log(log_data)
+            if self.step == 0 and self.sample_freq and not invert_model:
+                self.render_reference(self.n_reference)
             # if self.sample_freq and self.step % self.sample_freq == 0 and not invert_model:
             #     self.render_samples()
             self.step += 1
@@ -653,31 +675,31 @@ class TrainerOvercooked(Trainer):
             n_reference=n_reference,
             bucket=bucket,
         )
+        self.overcooked_renderer = OvercookedSampleRenderer()
     def render_samples(self, batch_size=2, n_samples=8):
-        renderer = OvercookedSampleRenderer()
         video_dir = os.path.join(self.logdir, "sample_videos")
         os.makedirs(video_dir, exist_ok=True)
 
         for i in range(n_samples):
             sample = self.dataset.__getitem__(0)
-            print(dir(sample))
+            cond = torch.unsqueeze(to_torch(sample.conditions), 0).to(self.device)
+            dummy_cond = torch.unsqueeze(to_torch(sample.dummy_cond), 0).to(self.device)
+            cond_obs = torch.unsqueeze(to_torch(sample.conditions_obs), 0).to(self.device)
+            print(cond.shape, dummy_cond.shape, cond_obs.shape)
             samples = self.ema_model(
-                cond=torch.unsqueeze(to_torch(sample.conditions).to(self.device),0),
-                dummy_cond=torch.unsqueeze(to_torch(sample.dummy_cond).to(self.device),0),
-                cond_obs=torch.unsqueeze(to_torch(sample.conditions_obs).to(self.device),0),
+                cond=cond,
+                dummy_cond=dummy_cond,
+                cond_obs=cond_obs,
             )
             trajs = to_np(samples.trajectories[0])
-
             frames = []
             for obs in trajs:
-                frames.append(renderer.convert_flatten_map(obs))
-            grid = renderer.extract_grid_from_obs(frames[0])
-            
+                frames.append(obs)
+            grid = self.overcooked_renderer.extract_grid_from_obs(frames[0])
             video_path = os.path.join(video_dir, f"sample_{i}_step_{self.step}.mp4")
-            renderer.render_trajectory_video(frames, grid, output_dir=video_dir, video_path=video_path, fps=1)
+            self.overcooked_renderer.render_trajectory_video(frames, grid, output_dir=video_dir, video_path=video_path, fps=1)
             print(f"Saved Reference Trajectory Video to {video_path}")
     def render_reference(self, batch_size=10):
-        renderer = OvercookedSampleRenderer()
         dataloader_tmp = cycle(torch.utils.data.DataLoader(
             self.dataset, batch_size=batch_size, num_workers=0, shuffle=True, pin_memory=True
         ))
@@ -690,8 +712,8 @@ class TrainerOvercooked(Trainer):
         for i, traj in enumerate(observations):
             frames = []
             for obs in traj:
-                frames.append(renderer.convert_flatten_map(obs))
-            grid = renderer.extract_grid_from_obs(frames[0])
+                frames.append(obs)
+            grid = self.overcooked_renderer.extract_grid_from_obs(frames[0])
             video_path = os.path.join(video_dir, f"reference_traj_{i}_step_{self.step}_agent_id_{conditions[i]}.mp4")
-            renderer.render_trajectory_video(frames, grid, output_dir=video_dir, video_path=video_path, fps=1)
+            self.overcooked_renderer.render_trajectory_video(frames, grid, output_dir=video_dir, video_path=video_path, fps=1)
             print(f"Saved Reference Trajectory Video {i} to {video_path} with condition: {conditions[i]}")
