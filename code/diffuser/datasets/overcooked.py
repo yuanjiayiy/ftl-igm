@@ -128,14 +128,15 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         self.num_embeddings, self.conditions = self.convert_to_indices(self.policy_names)
         
         
-        self.action_dim = 1
+        self.action_dim = (0)
         self.cond_dim = 8 # input to model init, T5 self.conditions
 
+        self.observation_dim = self.obs_cond_dim = (6,8,26)
         
             
-        self.observation_dim = np.prod(self.observations[0, 0, 0].shape) # every time step predict the skeleton: n joints x 3D pos
+        # self.observation_dim = np.prod(self.observations[0, 0, 0].shape) # every time step predict the skeleton: n joints x 3D pos
         # self.cond_dim = self.conditions.shape[1] # 768 T5
-        self.obs_cond_dim = np.prod(self.observations[0, 0, 0].shape) # init state: n joints x 3D pos
+        # self.obs_cond_dim = np.prod(self.observations[0, 0, 0].shape) # init state: n joints x 3D pos
         
         self.n_episodes = len(self.observations)
         
@@ -224,8 +225,11 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         # actions: horizon x 2 x action dim (1) 
         # policy : 2 (tuple)
     
-        T, _, H, W, C = obs.shape # Time, Agent, Height, Width, Channel 
         obs = self.normalize_init(obs)
+        pad_width = ((0, 0), (0, 0), (0, 0), (0, 1), (0, 0))
+        obs = np.pad(obs, pad_width, mode='constant', constant_values=0)
+        T, _, H, W, C = obs.shape # Time, Agent, Height, Width, Channel 
+
 
         # Get Ego Agent Observation (Agent ID  = 0)
         start = random.randint(1, T - self.horizon)
@@ -250,7 +254,7 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         # Condition Inputs: (valid_len, H, W, C)
         # Condition Masks : (valid_len,)
 
-        Batch(trajectories, conditions, self.dummy_cond, cond_inputs, cond_masks)
+        return Batch(trajectories, conditions, self.dummy_cond, cond_inputs, cond_masks)
 
 
     # def __getitem__(self, idx, eps=1e-4):

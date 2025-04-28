@@ -3,6 +3,7 @@ import torch.nn as nn
 import einops
 from einops.layers.torch import Rearrange
 from torch.distributions import Bernoulli
+from diffuser.utils import to_device
 
 
 from .helpers import (
@@ -78,6 +79,7 @@ class TemporalUnet(nn.Module):
             act_fn = nn.Mish()
 
         time_dim = dim
+        # time embedding of the vector
         self.time_mlp = nn.Sequential(
             SinusoidalPosEmb(dim),
             nn.Linear(dim, dim * 4),
@@ -367,3 +369,91 @@ class SpatiotemporalTransformer(nn.Module):
         x_out = self.output_proj(x_attn)  # optional projection
 
         return x_out.view(B, T, H, W, -1)  # return to original 2D+time layout
+
+from .guided_diffusion.unet import UNetModel
+from einops import repeat, rearrange
+
+class UnetMW(nn.Module):
+    def __init__(self,
+                # dim_mults=(1, 2, 4, 8),
+                *args, **kwargs):
+        super(UnetMW, self).__init__()
+        self.dim_mults = (1,2)
+        self.num_classes = 24 # 24 Partner Agent Policies for Counter Circuit
+        self.task_tokens = False # Use Num Classes Instead
+        self.dropout = 0.1 # Dropout for the ResBlock
+        self.unet_params = {
+            "dims": 3, # 3 for video
+            "model_channels": 128,
+            "num_res_blocks": 2,
+            "attention_resolutions": (8, 16),
+            "conv_resample": True,
+            "task_token_channels": 512,
+            "use_checkpoint": False,
+            "use_fp16": False,
+            "num_head_channels": 32,
+        }
+        self.H, self.W, self.C = 8, 5, 26
+        self.unet = UNetModel(
+            image_size=(self.H,self.W),
+            in_channels=self.C*2, #26 Obs Channels + 26 Conditional Obs Channels
+            out_channels=self.C, # Return just 26 channels
+            dropout=self.dropout,
+            num_classes= self.num_classes,
+            task_tokens=self.task_tokens,
+            channel_mult=self.dim_mults,
+            **self.unet_params,
+        )
+    def _init_unet(self,H,W,C):
+        self.H, self.W, self.C = H, W, C
+        self.unet = UNetModel(
+            image_size=(H,W),
+            in_channels=C*2, #26 Obs Channels + 26 Conditional Obs Channels
+            out_channels=C, # Return just 26 channels
+            dropout=self.dropout,
+            num_classes= self.num_classes,
+            task_tokens=self.task_tokens,
+            channel_mult=self.dim_mults,
+            **self.unet_params,
+        )
+        self.unet.to("cuda:0")
+
+    def forward(self, x, cond, time, dummy_cond=None, cond_obs=None, cond_mask=None, cond_im=None, force_dropout=False):
+        """
+        x: [batch, horizon, H, W, C] - trajectory observations
+        cond: [batch] - policy indice of partner agent
+        time: [batch] - timestep encoding
+        dummy_cond: optional placeholder condition
+        cond_obs: [batch, H, W, C] or [batch, history_len, H, W, C] - condition observations
+        cond_mask: [batch, history_len] - mask for valid history timesteps
+        """
+        # print("x.shape", x.shape, x.dtype, "cond.shape", cond.shape, cond.dtype, "dummy_cond.shape", dummy_cond.shape, dummy_cond.dtype,
+        #       "cond_obs.shape", cond_obs.shape, cond_obs.dtype, "time.shape", time.shape, "cond_mask", cond_mask.shape)
+        # Initialize Unet
+        _, Horizon, H, W, C = x.shape
+        if (self.H, self.W, self.C) != (H,W,C):
+            self._init_unet(H,W,C)
+
+        # Reshape X for Unet Processing -> (B, C, Horizon, H, W)
+        x = rearrange(x, 'b f h w c -> b c f h w')
+
+        # Condition Observation Handling
+        if cond_obs is not None:
+            cond_obs = cond_obs[cond_mask == 1.0]
+            if cond_obs.ndim == 4: # [B, H, W, C] One Image
+                # Reshape to (B, C, 1, H, W)
+                x_cond = rearrange(cond_obs, 'b h w c -> b c 1 h w')
+                # Replicate Channels Across Horizon --> From AVDC paper
+                x_cond = repeat(x_cond, 'b c 1 h w -> b c f h w', f=Horizon)
+            else:
+                raise NotImplemented("Unet Is Not Implemented To Be Conditioned on a History of Observations")
+        
+        # Concatenate x, x_cond
+        x = torch.cat([x, x_cond], dim=1).to(device="cuda:0")
+        
+        # Cond will be embedded by the Unet
+        out = self.unet(x, to_device(time), to_device(cond))
+
+        # Restore original dimensions: [B, C, Horizon, H, W] -> [B, Horizon, H, W, C]
+        return rearrange(out, 'b c f h w -> b f h w c')
+    
