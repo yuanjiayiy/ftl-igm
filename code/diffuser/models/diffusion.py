@@ -89,11 +89,19 @@ class GaussianDiffusion(nn.Module):
         self.register_buffer('posterior_mean_coef2',
             (1. - alphas_cumprod_prev) * np.sqrt(alphas) / (1. - alphas_cumprod))
 
-        ## get loss coefficients and initialize objective
-        loss_weights = self.get_loss_weights(action_weight, loss_discount, loss_weights)
-        self.loss_fn = Losses[loss_type](loss_weights, self.action_dim)
+        ## get loss coefficients and initialize objective        
+        # loss_weights = self.get_loss_weights(action_weight, loss_discount, loss_weights)
+        loss_weights = self.get_snr_loss_weights(alphas_cumprod)
+        self.loss_fn = Losses[loss_type](loss_weights, self.observation_dim)
+    
+    def get_snr_loss_weights(self, alphas_cumprod, min_snr_loss_weight=False,min_snr_gamma=5):
+        snr = alphas_cumprod / (1 - alphas_cumprod)
+        maybe_clipped_snr = snr.clone()
+        if min_snr_loss_weight:
+            maybe_clipped_snr.clamp_(max = min_snr_gamma)
+        return maybe_clipped_snr
 
-    def get_loss_weights(self, action_weight, discount, weights_dict):
+    def _get_loss_weights(self, action_weight, discount, weights_dict):
         '''
             sets loss coefficients for trajectory
 
@@ -265,13 +273,12 @@ class GaussianDiffusion(nn.Module):
                 x_recon = epsilon_uncond + torch.sum(self.condition_guidance_w.reshape(-1,1,1) * epsilon_diffs, dim=0)
             else:
                 x_recon = epsilon_uncond + torch.sum(self.condition_guidance_w.reshape(-1,1) * epsilon_diffs, dim=0)
-        print(noise.shape, x_recon.shape)
         assert noise.shape == x_recon.shape
 
         if self.predict_epsilon: #noise
-            loss, info = self.loss_fn(x_recon, noise)
+            loss, info = self.loss_fn(x_recon, noise, t)
         else: #x0
-            loss, info = self.loss_fn(x_recon, x_start)
+            loss, info = self.loss_fn(x_recon, x_start, t)
 
         return loss, info
 

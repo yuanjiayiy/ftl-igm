@@ -375,7 +375,7 @@ from einops import repeat, rearrange
 
 class UnetMW(nn.Module):
     def __init__(self,
-                # dim_mults=(1, 2, 4, 8),
+                dim_mults=(1, 2, 4, 8),
                 *args, **kwargs):
         super(UnetMW, self).__init__()
         self.dim_mults = (1,2)
@@ -393,7 +393,7 @@ class UnetMW(nn.Module):
             "use_fp16": False,
             "num_head_channels": 32,
         }
-        self.H, self.W, self.C = 8, 5, 26
+        self.H, self.W, self.C = 8, 6, 26
         self.unet = UNetModel(
             image_size=(self.H,self.W),
             in_channels=self.C*2, #26 Obs Channels + 26 Conditional Obs Channels
@@ -430,16 +430,24 @@ class UnetMW(nn.Module):
         # print("x.shape", x.shape, x.dtype, "cond.shape", cond.shape, cond.dtype, "dummy_cond.shape", dummy_cond.shape, dummy_cond.dtype,
         #       "cond_obs.shape", cond_obs.shape, cond_obs.dtype, "time.shape", time.shape, "cond_mask", cond_mask.shape)
         # Initialize Unet
-        _, Horizon, H, W, C = x.shape
-        if (self.H, self.W, self.C) != (H,W,C):
-            self._init_unet(H,W,C)
+        if x.dim() == 5:
+            _, Horizon, H, W, C = x.shape
+            if (self.H, self.W, self.C) != (H,W,C):
+                self._init_unet(H,W,C)
+        else:
+            raise NotImplemented(f"x.shape: {x.shape} ")
+        # elif x.dim() == 3: # Batch, Horizon, Flatten Dim
+        #     Batch, Horizon, _ = x.shape
+        #     x = x.view(Batch, Horizon, self.H, self.W, self.C)
+
 
         # Reshape X for Unet Processing -> (B, C, Horizon, H, W)
         x = rearrange(x, 'b f h w c -> b c f h w')
-
+        
         # Condition Observation Handling
         if cond_obs is not None:
             cond_obs = cond_obs[cond_mask == 1.0]
+            # print("cond_obs", cond_obs.shape, cond_obs.dim())
             if cond_obs.ndim == 4: # [B, H, W, C] One Image
                 # Reshape to (B, C, 1, H, W)
                 x_cond = rearrange(cond_obs, 'b h w c -> b c 1 h w')
@@ -447,7 +455,8 @@ class UnetMW(nn.Module):
                 x_cond = repeat(x_cond, 'b c 1 h w -> b c f h w', f=Horizon)
             else:
                 raise NotImplemented("Unet Is Not Implemented To Be Conditioned on a History of Observations")
-        
+        if force_dropout:
+            x_cond = dummy_cond
         # Concatenate x, x_cond
         x = torch.cat([x, x_cond], dim=1).to(device="cuda:0")
         

@@ -126,10 +126,10 @@ class Trainer(object):
             if self.step % self.log_freq == 0:
                 infos_str = ' | '.join([f'{key}: {val:8.4f}' for key, val in infos.items()])
                 print(f'{self.step}: {loss:8.4f} | {infos_str} | t: {timer():8.4f}', flush=True)
-            if self.step == 0 and self.sample_freq and not invert_model:
-                self.render_reference(self.n_reference)
-            if self.sample_freq and self.step % self.sample_freq == 0 and not invert_model:
-                self.render_samples()
+            # if self.step == 0 and self.sample_freq and not invert_model:
+            #     self.render_reference(self.n_reference)
+            # if self.sample_freq and self.step % self.sample_freq == 0 and not invert_model:
+            #     self.render_samples()
             self.step += 1
         return losses
 

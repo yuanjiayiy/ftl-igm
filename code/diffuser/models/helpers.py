@@ -146,6 +146,11 @@ def apply_conditioning(x, conditions, action_dim):
 #---------------------------------- losses -----------------------------------#
 #-----------------------------------------------------------------------------#
 
+def extract(a, t, x_shape):
+    b, *_ = t.shape
+    out = a.gather(-1, t)
+    return out.reshape(b, *((1,) * (len(x_shape) - 1)))
+
 class WeightedLoss(nn.Module):
 
     def __init__(self, weights, action_dim):
@@ -153,15 +158,14 @@ class WeightedLoss(nn.Module):
         self.register_buffer('weights', weights)
         self.action_dim = action_dim
 
-    def forward(self, pred, targ):
+    def forward(self, pred, targ, t):
         '''
             pred, targ : tensor
                 [ batch_size x horizon x transition_dim ]
         '''
-        print(pred.shape, targ.shape)
         loss = self._loss(pred, targ)
-        print(loss.shape, self.weights.shape)
-        weighted_loss = (loss * self.weights).mean()
+        loss_weights = extract(self.weights,t, pred.shape)
+        weighted_loss = (loss * loss_weights).mean()
         return weighted_loss, {}
 
 class ValueLoss(nn.Module):

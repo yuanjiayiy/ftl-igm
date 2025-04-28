@@ -278,7 +278,7 @@ def full_horizon_eval(args, basedir, diffusion, dataset, idm, policy, device, vi
     with open(metrics_path, 'wb') as f:
         pickle.dump(summary, f)
     print(f"Summary metrics saved to {metrics_path}")
-    
+    envs.close()
     return summary
                 
 
