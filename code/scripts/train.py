@@ -36,7 +36,7 @@ if __name__ == "__main__":
         args.model,
         savepath=(args.savepath, 'model_config.pkl'),
         horizon=args.horizon,
-        transition_dim=observation_dim + action_dim, #output
+        transition_dim=observation_dim, #output
         cond_dim=dataset.cond_dim,
         obs_cond_dim=dataset.obs_cond_dim, #input
         dim_mults=args.dim_mults,

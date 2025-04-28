@@ -158,7 +158,9 @@ class WeightedLoss(nn.Module):
             pred, targ : tensor
                 [ batch_size x horizon x transition_dim ]
         '''
+        print(pred.shape, targ.shape)
         loss = self._loss(pred, targ)
+        print(loss.shape, self.weights.shape)
         weighted_loss = (loss * self.weights).mean()
         return weighted_loss, {}
 
