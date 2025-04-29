@@ -435,7 +435,7 @@ class UnetMW(nn.Module):
         x_padded = F.pad(x, pad_tuple, mode='constant', value=0)
         return x_padded
 
-    def forward(self, x, cond, time, dummy_cond=None, cond_obs=None, cond_mask=None, cond_im=None, force_dropout=False):
+    def forward(self, x, cond, time, dummy_cond=None, cond_obs=None, cond_mask=None, cond_im=None, force_dropout=False, use_dropout=True):
         """
         x: [batch, horizon, H, W, C] - trajectory observations
         cond: [batch] - policy indice of partner agent
@@ -461,19 +461,22 @@ class UnetMW(nn.Module):
         x = rearrange(x, 'b f h w c -> b c f h w')
         # Condition Observation Handling
         if cond_obs is not None:
-            cond_obs = cond_obs[cond_mask == 1.0]
+            if cond_mask is not None:
+                cond_obs = cond_obs[cond_mask == 1.0]
             if cond_obs.ndim == 4: # [B, H, W, C] One Image
                 # Reshape to (B, C, 1, H, W)
                 x_cond = self.pad_even(cond_obs)
                 x_cond = rearrange(x_cond, 'b h w c -> b c 1 h w')
                 # Replicate Channels Across Horizon --> From AVDC paper
                 x_cond = repeat(x_cond, 'b c 1 h w -> b c f h w', f=Horizon)
+                # Concatenate x, x_cond
+                x = torch.cat([x, x_cond], dim=1).to(device="cuda:0")
             else:
                 raise NotImplemented("Unet Is Not Implemented To Be Conditioned on a History of Observations")
+
         if force_dropout:
-            x_cond = self.pad_even(dummy_cond)
-        # Concatenate x, x_cond
-        x = torch.cat([x, x_cond], dim=1).to(device="cuda:0")
+            cond = dummy_cond
+        
         
         # Cond will be embedded by the Unet
         out = self.unet(x, to_device(time), to_device(cond))

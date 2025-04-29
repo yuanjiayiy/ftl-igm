@@ -93,7 +93,7 @@ class Trainer(object):
         self.t5_model = T5EncoderModel.from_pretrained("google/flan-t5-base").to(self.device)
 
         
-        wandb.init(project="FTL", name=f"run_{self.logdir}")
+        wandb.init(project="overcooked_idm_law", entity="social-rl", name=f"run_{self.logdir}")
         wandb.config.update({
             "learning_rate": train_lr,
             "batch_size": train_batch_size,

@@ -94,7 +94,7 @@ class GaussianDiffusion(nn.Module):
         loss_weights = self.get_snr_loss_weights(alphas_cumprod)
         self.loss_fn = Losses[loss_type](loss_weights, self.observation_dim)
     
-    def get_snr_loss_weights(self, alphas_cumprod, min_snr_loss_weight=False,min_snr_gamma=5):
+    def get_snr_loss_weights(self, alphas_cumprod, min_snr_loss_weight=True,min_snr_gamma=5):
         snr = alphas_cumprod / (1 - alphas_cumprod)
         maybe_clipped_snr = snr.clone()
         if min_snr_loss_weight:
@@ -205,7 +205,6 @@ class GaussianDiffusion(nn.Module):
             t = make_timesteps(batch_size, i, device)
             x, values = sample_fn(self, x, cond, t, dummy_cond, **sample_kwargs)
             apply_conditioning(x, cond, self.action_dim)
-
             progress.update({'t': i, 'vmin': values.min().item(), 'vmax': values.max().item()})
             if return_chain: chain.append(x)
 

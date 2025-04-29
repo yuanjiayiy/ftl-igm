@@ -131,7 +131,7 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         self.action_dim = (0)
         self.cond_dim = 8 # input to model init, T5 self.conditions
 
-        self.observation_dim = self.obs_cond_dim = (5,8,26)
+        self.observation_dim = self.obs_cond_dim = (8,5,26)
         
             
         # self.observation_dim = np.prod(self.observations[0, 0, 0].shape) # every time step predict the skeleton: n joints x 3D pos
