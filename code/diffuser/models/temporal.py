@@ -477,9 +477,8 @@ class UnetMW(nn.Module):
         if force_dropout:
             cond = dummy_cond
         
-        
         # Cond will be embedded by the Unet
-        out = self.unet(x, to_device(time), to_device(cond))
+        out = self.unet(x, time, to_device(cond))
 
         # Restore original dimensions: [B, C, Horizon, H, W] -> [B, Horizon, H, W, C]
         out = rearrange(out, 'b c f h w -> b f h w c')

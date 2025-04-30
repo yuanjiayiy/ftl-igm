@@ -283,7 +283,7 @@ class OvercookedSampleRenderer:
         if video_path is None:
             video_path = os.path.join(output_dir, "trajectory_viz_video.mp4")
         clip = ImageSequenceClip(img_paths, fps=fps)
-        clip.write_videofile(video_path, codec="libx264", fps=fps)
+        clip.write_videofile(video_path, codec="libx264", fps=fps, verbose=False, logger=None)
         print(f"Video saved to {video_path}")
         return video_path
     

@@ -147,11 +147,12 @@ class Trainer(object):
                     'loss': loss.item(),
                     'step_time': timer(),
                 }
-                # wandb.log(log_data)
+                wandb.log(log_data)
             if self.step == 0 and self.sample_freq and not invert_model:
                 self.render_reference(self.n_reference)
-            # if self.sample_freq and self.step % self.sample_freq == 0 and not invert_model:
-            #     self.render_samples()
+            if self.sample_freq and self.step % self.sample_freq == 0 and not invert_model:
+                metrics = self.render_samples()
+                wandb.log({**metrics, 'step': self.step})
             self.step += 1
         return losses
 
@@ -676,29 +677,69 @@ class TrainerOvercooked(Trainer):
             bucket=bucket,
         )
         self.overcooked_renderer = OvercookedSampleRenderer()
-    def render_samples(self, batch_size=2, n_samples=8):
-        video_dir = os.path.join(self.logdir, "sample_videos")
+    def render_samples(self, batch_size=1, n_samples=10):
+        video_dir = os.path.join(self.logdir, "eval_videos")
         os.makedirs(video_dir, exist_ok=True)
 
+        metrics = {
+            "mse": [],
+            "mae": [],
+            "final_state_mse": [],
+            "final_state_mae": [],
+        }
         for i in range(n_samples):
-            sample = self.dataset.__getitem__(0)
-            cond = torch.unsqueeze(to_torch(sample.conditions), 0).to(self.device)
-            dummy_cond = torch.unsqueeze(to_torch(sample.dummy_cond), 0).to(self.device)
-            cond_obs = torch.unsqueeze(to_torch(sample.conditions_obs), 0).to(self.device)
-            print(cond.shape, dummy_cond.shape, cond_obs.shape)
-            samples = self.ema_model(
+            idx = random.randint(0, len(self.dataset) - 1)
+            
+            # Get A Random Sample From Database
+            sample = self.dataset.__getitem__(idx)
+            cond = to_torch(sample.conditions, torch.int64).unsqueeze(0)
+            dummy_cond = to_torch(sample.dummy_cond, torch.int64).unsqueeze(0)
+            H, W, C = self.dataset.observation_dim
+            
+            
+            # Get First Conditional Observation
+            cond_obs = to_torch(sample.conditions_obs) # [Horizon, H, W, C]
+            cond_obs = cond_obs[0,:,:,:].unsqueeze(0) 
+            diffusion_samples = self.ema_model.p_sample_loop(
+                shape=(1, self.dataset.horizon, H, W, C),
                 cond=cond,
                 dummy_cond=dummy_cond,
                 cond_obs=cond_obs,
             )
-            trajs = to_np(samples.trajectories[0])
-            frames = []
-            for obs in trajs:
-                frames.append(obs)
-            grid = self.overcooked_renderer.extract_grid_from_obs(frames[0])
-            video_path = os.path.join(video_dir, f"sample_{i}_step_{self.step}.mp4")
-            self.overcooked_renderer.render_trajectory_video(frames, grid, output_dir=video_dir, video_path=video_path, fps=1)
-            print(f"Saved Reference Trajectory Video to {video_path}")
+            # Get Trajectories and Compute Difference
+            actual_traj = to_torch(sample.trajectories)
+            diff_traj = diffusion_samples.trajectories.squeeze(0)
+
+            print(actual_traj.shape, diff_traj.shape)
+            
+            # Compute Metrics
+            mse = ((actual_traj - diff_traj)**2).mean().item()
+            metrics['mse'].append(mse)
+            
+            mae = torch.abs(actual_traj - diff_traj).mean().item()
+            metrics['mae'].append(mae)
+
+            # MSE on the final state
+            final_state_mse = ((actual_traj[:, -1] - diff_traj[:, -1])**2).mean().item()
+            metrics['final_state_mse'].append(final_state_mse)
+
+            # MAE on the final state
+            final_state_mae = torch.abs(actual_traj[:, -1] - diff_traj[:, -1]).mean().item()
+            metrics['final_state_mae'].append(final_state_mae)
+
+            # Save Trajectory Videos
+            grid = self.overcooked_renderer.extract_grid_from_obs(actual_traj[0])
+            actual_video_path = os.path.join(video_dir, f"reference_trajectory_{i}_step_{self.step}_eval.mp4")
+            diff_video_path = os.path.join(video_dir, f"predicted_trajectory_{i}_step_{self.step}_eval.mp4")
+            
+            self.overcooked_renderer.render_trajectory_video(to_np(actual_traj), grid, output_dir=video_dir, video_path=actual_video_path, fps=1)
+            self.overcooked_renderer.render_trajectory_video(to_np(diff_traj), grid, output_dir=video_dir, video_path=diff_video_path, fps=1)
+
+        print(f"Saved Reference And Diffused Trajectory Videos.")
+        print(f"Evaluation Metrics (Step {self.step}): {avg_metrics}")  
+        avg_metrics = {f"eval_avg_{k}": np.mean(v) for k, v in metrics.items() if v}
+        return avg_metrics
+
     def render_reference(self, batch_size=10):
         dataloader_tmp = cycle(torch.utils.data.DataLoader(
             self.dataset, batch_size=batch_size, num_workers=0, shuffle=True, pin_memory=True
