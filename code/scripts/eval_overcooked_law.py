@@ -114,7 +114,7 @@ def full_horizon_eval(args, basedir, diffusion, dataset, idm, policy, device, sh
     all_metrics = []
     episode_rewards = []
     # agent_id = args.agent_id if hasattr(args, 'agent_id') else 5
-    agent_id = 24
+    agent_id = 23
     H, W, C = dataset.observation_dim
     sample = dataset.__getitem__(0)
     for episode in range(eval_episodes):

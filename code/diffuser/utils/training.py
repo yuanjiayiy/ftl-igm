@@ -93,18 +93,18 @@ class Trainer(object):
         self.t5_model = T5EncoderModel.from_pretrained("google/flan-t5-base").to(self.device)
 
         
-        wandb.init(project="overcooked_idm_law", entity="social-rl", name=f"run_{self.logdir}")
-        wandb.config.update({
-            "learning_rate": train_lr,
-            "batch_size": train_batch_size,
-            "ema_decay": ema_decay,
-            "diffusion_model": diffusion_model.__class__.__name__,
-            "dataset": dataset.__class__.__name__,
-            "results_folder": results_folder,
-            "gradient_accumulate_every": gradient_accumulate_every,
-            "step_start_ema": step_start_ema,
-            "update_ema_every": update_ema_every,
-        })
+        # wandb.init(project="overcooked_idm_law", entity="social-rl", name=f"run_{self.logdir}")
+        # wandb.config.update({
+        #     "learning_rate": train_lr,
+        #     "batch_size": train_batch_size,
+        #     "ema_decay": ema_decay,
+        #     "diffusion_model": diffusion_model.__class__.__name__,
+        #     "dataset": dataset.__class__.__name__,
+        #     "results_folder": results_folder,
+        #     "gradient_accumulate_every": gradient_accumulate_every,
+        #     "step_start_ema": step_start_ema,
+        #     "update_ema_every": update_ema_every,
+        # })
 
     def reset_parameters(self):
         self.ema_model.load_state_dict(self.model.state_dict())
@@ -147,7 +147,7 @@ class Trainer(object):
                     'loss': loss.item(),
                     'step_time': timer(),
                 }
-                wandb.log(log_data)
+                # wandb.log(log_data)
             if self.step == 0 and self.sample_freq and not invert_model:
                 self.render_reference(self.n_reference)
             # if self.sample_freq and self.step % self.sample_freq == 0 and not invert_model:
