@@ -74,7 +74,7 @@ def parse_args(args, parser):
 
     return all_args
 
-def get_idm_action(current_obs, next_obs, idm_model, device):
+def get_idm_action(current_obs, next_obs, idm_model):
     with th.no_grad():
         logits = idm_model(current_obs, next_obs)
         probs = F.softmax(logits, dim=1)
@@ -97,7 +97,7 @@ def get_agent(population_yaml_path, policy_name, device):
     feat_type = featurize_type.get(policy_name, 'ppo')
     return policy, feat_type
 
-def full_horizon_eval(args, basedir, diffusion, dataset, idm, policy, device, viz=True, eval_episodes=3):
+def full_horizon_eval(args, basedir, diffusion, dataset, idm, policy, device, show_samples=False, eval_episodes=3):
     print(f"Starting Overcooked Evaluation; BaseDir {basedir}")
     video_dir = osp.join(basedir, "videos")
     frames_dir = osp.join(basedir, "frames")
@@ -115,7 +115,8 @@ def full_horizon_eval(args, basedir, diffusion, dataset, idm, policy, device, vi
     episode_rewards = []
     # agent_id = args.agent_id if hasattr(args, 'agent_id') else 5
     agent_id = 24
-
+    H, W, C = dataset.observation_dim
+    sample = dataset.__getitem__(0)
     for episode in range(eval_episodes):
         print(f"Starting episode {episode+1}/{eval_episodes}")
 
@@ -128,10 +129,11 @@ def full_horizon_eval(args, basedir, diffusion, dataset, idm, policy, device, vi
         cond = np.full((n_envs,), agent_id, dtype=np.int64)
         cond = th.tensor(cond, device=device)
 
+        # Get dummy condition from dataset sample
+        dummy_cond = th.tensor(np.stack([sample.dummy_cond] * n_envs, axis=0), device=device)
+
         # Reset environment
         obs, _, _ = envs.reset([True] * n_envs)
-
-        print("obs", len(obs), obs[0][0].shape)
 
         steps = 0
         done = False
@@ -139,52 +141,42 @@ def full_horizon_eval(args, basedir, diffusion, dataset, idm, policy, device, vi
         max_steps = args.max_steps if hasattr(args, 'max_steps') else 400
         frames = [[obs[i][0]] for i in range(n_envs)]
 
+        # Store the previous observation for conditioning
+        prev_ego_obs_norm = np.stack([dataset.normalize_init(obs[e][0]) for e in range(n_envs)], axis=0)
         while not done and steps <= max_steps:
-            eval_actions = np.zeros((n_envs, 32, 2, 1), dtype=np.int64)  # Assuming shape (envs, 32 steps, agents, action_dim)
-            ego_obs_lst = [dataset.normalize_init(obs[e][0]) for e in range(n_envs)]
-
-            print("ego_obs_lst", ego_obs_lst[0].shape, len(ego_obs_lst))
-            # Setup diffusion conditioning
-            sample = dataset.__getitem__(0)
-            context_len, H, W, C = sample.conditions_obs.shape
-            print(H,W,C)
-            condition_obs = []
-            
-            for ego_obs in ego_obs_lst:
-                cond_inputs = np.zeros((context_len, H, W, C), dtype=np.float32)
-                # Shift observations
-                cond_inputs[:-1] = cond_inputs[1:]
-                cond_inputs[-1] = ego_obs
-                condition_obs.append(cond_inputs)
-            
-            condition_obs = np.stack(condition_obs, axis=0)
-            condition_obs = th.tensor(condition_obs, device=device)
-            dummy_cond = th.tensor(np.stack([sample.dummy_cond] * n_envs, axis=0), device=device)
-    
+            # Condition Obs is the previous ego obs
+            condition_obs = th.tensor(prev_ego_obs_norm, device=device, dtype=th.float32) # Shape: [n_envs, H, W, C]
             with th.no_grad():
                 samples = diffusion.p_sample_loop(
-                    shape=(n_envs, dataset.horizon, dataset.observation_dim + dataset.action_dim),
+                    shape=(n_envs, dataset.horizon, H, W, C),
                     cond=cond,
                     dummy_cond=dummy_cond,
                     cond_obs=condition_obs,
-                    compose=False
                 )
-                
-                # Convert predictions to actions using IDM
-                for env_i in range(n_envs):
-                    pred_obs_seq = samples.trajectories[env_i, :, :dataset.observation_dim]
-                    pred_obs_seq = pred_obs_seq.reshape((dataset.horizon, H, W, C))
-                    print(f"pred_obs {pred_obs_seq.shape}")
-                    curr_obs = th.tensor(ego_obs_lst[env_i], device=device).unsqueeze(0)
-                    print(f"curr_obs {curr_obs.shape}")
-                    full_obs = th.cat([curr_obs, pred_obs_seq], dim=0)
-                    print(f"full_obs {full_obs.shape}")
 
-                    for t in range(dataset.horizon):
-                        obs_t = full_obs[t].unsqueeze(0)
-                        obs_tp1 = full_obs[t+1].unsqueeze(0)
-                        ego_action = get_idm_action(obs_t, obs_tp1, idm, device)
-                        eval_actions[env_i, t, 0] = to_np(ego_action)
+            eval_actions = np.zeros((n_envs, dataset.horizon, 2, 1), dtype=np.int64)  # Assuming shape (envs, horizon, agents, action_dim)
+
+            current_ego_obs_unnorm = np.stack([obs[e][0] for e in range(n_envs)], axis=0)
+            for env_i in range(n_envs):
+                pred_obs_seq_norm = samples[env_i].cpu().numpy()
+
+                if show_samples:
+                    grid = renderer.extract_grid_from_obs(current_ego_obs_unnorm[env_i])
+                    pred_dir = osp.join(frames_dir, f"episode_{episode+1}_env_{env_i+1}_step_{steps}_predictions")
+                    os.makedirs(pred_dir, exist_ok=True)
+                    pred_video_path = osp.join(pred_dir, f"sample_diffusion_trajectory.mp4")
+                    for i in range(3):
+                        _ = renderer.render_trajectory_video(
+                            pred_obs_seq_norm[i],
+                            grid, output_dir=pred_dir, video_path=pred_video_path, fps=1,
+                        )
+                # (Current Ego Obs + Predicted Obs Sequence for Ego)
+                full_obs = th.cat([prev_ego_obs_norm[env_i], pred_obs_seq_norm], dim=0)
+                for t in range(dataset.horizon+1): # We added prev_ego_obs
+                    obs_t = full_obs[t].unsqueeze(0)
+                    obs_tp1 = full_obs[t+1].unsqueeze(0)
+                    ego_action = get_idm_action(obs_t, obs_tp1, idm, device)
+                    eval_actions[env_i, t, 0] = to_np(ego_action)
 
                 
             # Now step through the environment using the 32-step plan
@@ -234,8 +226,6 @@ def full_horizon_eval(args, basedir, diffusion, dataset, idm, policy, device, vi
             grid = renderer.extract_grid_from_obs(frames[e][0])
             env_dir = osp.join(video_dir, f"episode_{episode+1}_env_{e+1}")
             os.makedirs(env_dir, exist_ok=True)
-            frame_dir = osp.join(frames_dir, f"episode_{episode+1}_env_{e+1}")
-            os.makedirs(frame_dir, exist_ok=True)
             saved_video = renderer.render_trajectory_video(
                 frames[e], 
                 grid, 
@@ -328,6 +318,6 @@ if __name__ == "__main__":
         idm=idm_model,
         policy=policy,
         device=device,
-        viz=True,
+        show_samples=True,
         eval_episodes=3
     )
