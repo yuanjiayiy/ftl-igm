@@ -55,7 +55,7 @@ def parse_args(args, parser):
 
     parser.add_argument("--diffusion_loadpath", type=str, required=True, 
                       help="Path to the diffusion model directory")
-    parser.add_argument("--loadbase", type=str, default="/home/law/Workspace/repos/ftl-igm/code/logs",
+    parser.add_argument("--loadbase", type=str, default="logs",
                       help="Base directory for loading models")
     parser.add_argument("--dataset", type=str, default="overcooked",
                       help="Dataset name")
@@ -152,7 +152,7 @@ def full_horizon_eval(args, basedir, diffusion, dataset, idm, policy, device, sh
                     cond=cond,
                     dummy_cond=dummy_cond,
                     cond_obs=condition_obs,
-                )
+                ).trajectories
 
             eval_actions = np.zeros((n_envs, dataset.horizon, 2, 1), dtype=np.int64)  # Assuming shape (envs, horizon, agents, action_dim)
 
@@ -165,17 +165,20 @@ def full_horizon_eval(args, basedir, diffusion, dataset, idm, policy, device, sh
                     pred_dir = osp.join(frames_dir, f"episode_{episode+1}_env_{env_i+1}_step_{steps}_predictions")
                     os.makedirs(pred_dir, exist_ok=True)
                     pred_video_path = osp.join(pred_dir, f"sample_diffusion_trajectory.mp4")
-                    for i in range(3):
-                        _ = renderer.render_trajectory_video(
-                            pred_obs_seq_norm[i],
-                            grid, output_dir=pred_dir, video_path=pred_video_path, fps=1,
-                        )
+                    renderer.render_trajectory_video(
+                        pred_obs_seq_norm,
+                        grid, output_dir=pred_dir, video_path=pred_video_path, fps=1,
+                    )
+
                 # (Current Ego Obs + Predicted Obs Sequence for Ego)
-                full_obs = th.cat([prev_ego_obs_norm[env_i], pred_obs_seq_norm], dim=0)
-                for t in range(dataset.horizon+1): # We added prev_ego_obs
+                prev_ego_obs_norm_expended = np.expand_dims(prev_ego_obs_norm[env_i], axis=0)
+                prev_ego_obs_norm_expended = to_torch(prev_ego_obs_norm_expended, device=device, dtype=th.float32)
+                pred_obs_seq_norm = to_torch(pred_obs_seq_norm, device=device, dtype=th.float32)
+                full_obs = th.cat([prev_ego_obs_norm_expended, pred_obs_seq_norm], dim=0)
+                for t in range(dataset.horizon): # We added prev_ego_obs
                     obs_t = full_obs[t].unsqueeze(0)
                     obs_tp1 = full_obs[t+1].unsqueeze(0)
-                    ego_action = get_idm_action(obs_t, obs_tp1, idm, device)
+                    ego_action = get_idm_action(obs_t, obs_tp1, idm)
                     eval_actions[env_i, t, 0] = to_np(ego_action)
 
                 
