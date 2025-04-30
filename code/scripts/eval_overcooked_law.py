@@ -1,14 +1,14 @@
 import sys
 
-project_root = '/home/law/Workspace/repos/ftl-igm/code'
-if project_root not in sys.path:
-    sys.path.append(project_root)
-mapbt_path = '/home/law/Workspace/repos/ftl-igm/mapbt_package/mapbt'
-if mapbt_path not in sys.path:
-    sys.path.append(mapbt_path)
-overcooked_ai_py_src_path = '/home/law/Workspace/repos/ftl-igm/mapbt_package/mapbt/envs/overcooked/overcooked_berkeley/src/overcooked_ai_py'
-if overcooked_ai_py_src_path not in sys.path:
-    sys.path.append(overcooked_ai_py_src_path)
+# project_root = '/home/law/Workspace/repos/ftl-igm/code'
+# if project_root not in sys.path:
+#     sys.path.append(project_root)
+# mapbt_path = '/home/law/Workspace/repos/ftl-igm/mapbt_package/mapbt'
+# if mapbt_path not in sys.path:
+#     sys.path.append(mapbt_path)
+# overcooked_ai_py_src_path = '/home/law/Workspace/repos/ftl-igm/mapbt_package/mapbt/envs/overcooked/overcooked_berkeley/src/overcooked_ai_py'
+# if overcooked_ai_py_src_path not in sys.path:
+#     sys.path.append(overcooked_ai_py_src_path)
 
 import numpy as np
 import torch as th
