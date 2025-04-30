@@ -709,8 +709,6 @@ class TrainerOvercooked(Trainer):
             # Get Trajectories and Compute Difference
             actual_traj = to_torch(sample.trajectories)
             diff_traj = diffusion_samples.trajectories.squeeze(0)
-
-            print(actual_traj.shape, diff_traj.shape)
             
             # Compute Metrics
             mse = ((actual_traj - diff_traj)**2).mean().item()
