@@ -734,8 +734,8 @@ class TrainerOvercooked(Trainer):
             self.overcooked_renderer.render_trajectory_video(to_np(diff_traj), grid, output_dir=video_dir, video_path=diff_video_path, fps=1)
 
         print(f"Saved Reference And Diffused Trajectory Videos.")
-        print(f"Evaluation Metrics (Step {self.step}): {avg_metrics}")  
         avg_metrics = {f"eval_avg_{k}": np.mean(v) for k, v in metrics.items() if v}
+        print(f"Evaluation Metrics (Step {self.step}): {avg_metrics}")  
         return avg_metrics
 
     def render_reference(self, batch_size=10):
