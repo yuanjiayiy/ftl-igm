@@ -700,7 +700,7 @@ class TrainerOvercooked(Trainer):
             # Get First Conditional Observation
             cond_obs = to_torch(sample.conditions_obs) # [Horizon, H, W, C]
             cond_obs = cond_obs[0,:,:,:].unsqueeze(0) 
-            diffusion_samples = self.ema_model.p_sample_loop(
+            diffusion_samples = self.model.p_sample_loop( # TODO: Can use EMA Model Here
                 shape=(1, self.dataset.horizon, H, W, C),
                 cond=cond,
                 dummy_cond=dummy_cond,
