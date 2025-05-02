@@ -5,6 +5,10 @@ import numpy as np
 from overcooked_env.static import GRAPHICS_DIR, FONTS_DIR
 from overcooked_env.visualization.pygame_utils import scale_surface_by_factor
 from moviepy.editor import ImageSequenceClip
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import math
 
 
 class OvercookedSampleRenderer:
@@ -307,6 +311,7 @@ class OvercookedSampleRenderer:
         spatial_features = flat_obs.reshape(height, width, channels)
         return spatial_features
     
+    
     def normalize_obs(self, obs, threshold_value=0.1):
         """Normalizes each channel to [0,1] and scales object channels to their max values."""
         normalized = np.zeros_like(obs)
@@ -366,3 +371,51 @@ class OvercookedSampleRenderer:
             surface = scale_surface_by_factor(surface, scale)
         pygame.image.save(surface, file_path)
         return file_path
+    
+    def visualize_all_channels(self, obs, output_dir=None, height=8, width=5):        
+        if obs.ndim != 3:
+            raise ValueError(f"Expected obs to be 3D (H, W, C), got shape {obs.shape}")
+        
+        H, W, C = obs.shape
+        if C == 0:
+            print("Warning: Observation has 0 channels, nothing to visualize.")
+            return
+        # Create a figure with subplots for each channel
+        cols = math.ceil(math.sqrt(C))
+        rows = math.ceil(C / cols)
+        fig, axes = plt.subplots(rows, cols, figsize=(cols * 3, rows * 3), squeeze=False) # Adjust figsize as needed
+        axes_flat = axes.flatten()
+        
+        # Create a heatmap for each channel
+        for idx in range(C):
+            ax = axes_flat[idx]
+
+            # Extract the channel data
+            channel_data = obs[:, :, idx]
+
+            # Create the heatmap
+            im = ax.imshow(channel_data, cmap='viridis', interpolation='nearest', aspect='auto')
+
+            # Get channel name if available, otherwise use index
+            if idx < len(self.FEATURE_CHANNEL_MAP):
+                channel_name = self.FEATURE_CHANNEL_MAP[idx]
+            else:
+                channel_name = f"Channel {idx}"
+
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_title(f"{channel_name}", fontsize=9)
+
+            # Add colorbar
+            fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        
+        # Hide unused subplots
+        for idx in range(C, len(axes_flat)):
+            axes_flat[idx].axis('off')
+
+        plt.tight_layout()
+        
+        if output_dir:
+            plt.savefig(output_dir, bbox_inches='tight', dpi=150)
+            print(f"All channels heatmap saved to {output_dir}")
+        plt.close(fig)
