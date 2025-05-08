@@ -12,6 +12,7 @@ from diffuser.datasets.object_rearrangement import *
 from diffuser.datasets.AGENT import *
 from diffuser.datasets.mocap import *
 from diffuser.datasets.highway import *
+from diffuser.datasets.overcooked import *
 
 import wandb
 
@@ -687,8 +688,9 @@ class TrainerOvercooked(Trainer):
             "final_state_mse": [],
             "final_state_mae": [],
         }
+
         for i in range(n_samples):
-            idx = random.randint(0, len(self.dataset) - 1)
+            idx = random.randint(0, len(self.dataset.indices) - 1)
             
             # Get A Random Sample From Database
             sample = self.dataset.__getitem__(idx)
@@ -733,8 +735,15 @@ class TrainerOvercooked(Trainer):
             
             # self.overcooked_renderer.render_trajectory_video(to_np(actual_traj), grid, output_dir=video_dir, video_path=actual_video_path, fps=1)
             # self.overcooked_renderer.render_trajectory_video(to_np(diff_traj), grid, output_dir=video_dir, video_path=diff_video_path, fps=1)
-            self.overcooked_renderer.visualize_all_channels(to_np(actual_traj[-1, :, :, :]), actual_video_path )
+            self.overcooked_renderer.visualize_all_channels(to_np(actual_traj[-1, :, :, :]), actual_video_path)
             self.overcooked_renderer.visualize_all_channels(to_np(diff_traj[-1, :, :, :]), diff_video_path)
+
+            # get action for diff_traj
+            actual_actions = sample.actions
+            diff_actions = [inverse_dynamics_from_frames(to_np(diff_traj[i, :, :, :]), to_np(diff_traj[i+1, :, :, :])) for i in range(self.dataset.horizon-1)]
+            
+
+
 
         avg_metrics = {f"eval_avg_{k}": np.mean(v) for k, v in metrics.items() if v}
         print(f"Evaluation Metrics (Step {self.step}): {avg_metrics}")  

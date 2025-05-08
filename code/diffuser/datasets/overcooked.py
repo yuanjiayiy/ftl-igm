@@ -5,6 +5,7 @@ import pickle
 from collections import namedtuple
 from ..utils.rendering import *
 import gymnasium as gym
+from mapbt.envs.overcooked.Overcooked_Env import Overcooked
 import copy
 
 from transformers import T5Tokenizer, T5EncoderModel
@@ -22,7 +23,7 @@ policy_name_dict = {"counter_circuit_o_1order_mep":
 def to_tensor(x, dtype=torch.float, device='cpu'):
     return torch.tensor(x, dtype=dtype, device=device)
 
-Batch = namedtuple('Batch', 'trajectories conditions dummy_cond conditions_obs conditions_mask') #trajectories: output traj, conditions: concept (text embedding), conditions_obs: condition on curr obs (model needs to predict next steps, create batches based on curr obs any t from training demos)
+Batch = namedtuple('Batch', 'trajectories conditions dummy_cond conditions_obs conditions_mask actions') #trajectories: output traj, conditions: concept (text embedding), conditions_obs: condition on curr obs (model needs to predict next steps, create batches based on curr obs any t from training demos)
 
 has_cuda = torch.cuda.is_available()
 device = torch.device('cpu' if not has_cuda else 'cuda')
@@ -95,7 +96,53 @@ def safe_deepcopy_env(obj):
         else:
             setattr(result, k, None)
     return result
+    
+import numpy as np
+from overcooked_ai_py.mdp.overcooked_mdp import OvercookedGridworld
+from overcooked_ai_py.mdp.overcooked_env import OvercookedEnv
 
+import numpy as np
+
+ACTION_TO_DELTA = {
+    0: (-1, 0),  # North
+    1: (1, 0),   # South
+    2: (0, 1),   # East
+    3: (0, -1),  # West
+    4: (0, 0),   # Stay
+    5: (0, 0),   # Interact (position may not change)
+}
+
+def find_agent_position(frame, agent_idx):
+    """
+    Locate agent in frame. Agent 0 = channel 0, Agent 1 = channel 1
+    Returns: (row, col)
+    """
+
+    channel = frame[:, :, agent_idx]
+    pos = np.unravel_index(np.argmax(channel), channel.shape)
+    return pos
+
+def infer_action(pos_0, pos_1):
+    delta = (pos_1[0] - pos_0[0], pos_1[1] - pos_0[1])
+    for action, d in ACTION_TO_DELTA.items():
+        if delta == d:
+            return action
+    return 5  # Interact or unknown
+
+def inverse_dynamics_from_frames(frame_0, frame_1):
+    """
+    Estimate joint action from frame_0 to frame_1
+    Returns: (a0, a1)
+    """
+    a0_pos_0 = find_agent_position(frame_0, 0)
+    a1_pos_0 = find_agent_position(frame_0, 1)
+    a0_pos_1 = find_agent_position(frame_1, 0)
+    a1_pos_1 = find_agent_position(frame_1, 1)
+
+    a0_action = infer_action(a0_pos_0, a0_pos_1)
+    a1_action = infer_action(a1_pos_0, a1_pos_1)
+
+    return (a0_action, a1_action)
 
 class OvercookedSequenceDataset(torch.utils.data.Dataset):
 
@@ -242,6 +289,7 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         start = random.randint(1, T - self.horizon)
         end = start + self.horizon
         trajectories = obs[start:end, 0]
+        actions = actions[start:end]
         
         # Condition on Past Trajectory or Previous Start State
         conditions_obs = obs[start-1, 0] if condition_single_input else obs[:start, 0]
@@ -261,7 +309,7 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         # Condition Inputs: (valid_len, H, W, C)
         # Condition Masks : (valid_len,)
 
-        return Batch(trajectories, conditions, self.dummy_cond, cond_inputs, cond_masks)
+        return Batch(trajectories, conditions, self.dummy_cond, cond_inputs, cond_masks, actions)
 
 
     # def __getitem__(self, idx, eps=1e-4):
