@@ -93,7 +93,7 @@ class Trainer(object):
         self.t5_model = T5EncoderModel.from_pretrained("google/flan-t5-base").to(self.device)
 
         
-        # wandb.init(project="overcooked_idm_law", entity="social-rl", name=f"run_{self.logdir}")
+        # wandb.init(project="overcooked_idm_law", entity="social-rl", name=f"run_12_12_{self.logdir}")
         # wandb.config.update({
         #     "learning_rate": train_lr,
         #     "batch_size": train_batch_size,
@@ -148,8 +148,8 @@ class Trainer(object):
                     'step_time': timer(),
                 }
                 wandb.log(log_data)
-            if self.step == 0 and self.sample_freq and not invert_model:
-                self.render_reference(self.n_reference)
+            # if self.step == 0 and self.sample_freq and not invert_model:
+            #     self.render_reference(self.n_reference)
             if self.sample_freq and self.step % self.sample_freq == 0 and not invert_model:
                 metrics = self.render_samples()
                 wandb.log({**metrics, 'step': self.step})
@@ -677,7 +677,7 @@ class TrainerOvercooked(Trainer):
             bucket=bucket,
         )
         self.overcooked_renderer = OvercookedSampleRenderer()
-    def render_samples(self, batch_size=1, n_samples=10):
+    def render_samples(self, batch_size=1, n_samples=3):
         video_dir = os.path.join(self.logdir, "eval_videos")
         os.makedirs(video_dir, exist_ok=True)
 
@@ -701,7 +701,7 @@ class TrainerOvercooked(Trainer):
             cond_obs = to_torch(sample.conditions_obs) # [Horizon, H, W, C]
             cond_obs = cond_obs[0,:,:,:].unsqueeze(0)
             with torch.no_grad():
-                diffusion_samples = self.model.p_sample_loop( # TODO: Can use EMA Model Here
+                diffusion_samples = self.ema_model.p_sample_loop(
                     shape=(1, self.dataset.horizon, H, W, C),
                     cond=cond,
                     dummy_cond=dummy_cond,
@@ -728,13 +728,14 @@ class TrainerOvercooked(Trainer):
 
             # Save Trajectory Videos
             grid = self.overcooked_renderer.extract_grid_from_obs(actual_traj[0])
-            actual_video_path = os.path.join(video_dir, f"reference_trajectory_{i}_step_{self.step}_eval.mp4")
-            diff_video_path = os.path.join(video_dir, f"predicted_trajectory_{i}_step_{self.step}_eval.mp4")
+            actual_video_path = os.path.join(video_dir, f"reference_trajectory_{i}_step_{self.step}_eval.png")
+            diff_video_path = os.path.join(video_dir, f"predicted_trajectory_{i}_step_{self.step}_eval.png")
             
-            self.overcooked_renderer.render_trajectory_video(to_np(actual_traj), grid, output_dir=video_dir, video_path=actual_video_path, fps=1)
-            self.overcooked_renderer.render_trajectory_video(to_np(diff_traj), grid, output_dir=video_dir, video_path=diff_video_path, fps=1)
+            # self.overcooked_renderer.render_trajectory_video(to_np(actual_traj), grid, output_dir=video_dir, video_path=actual_video_path, fps=1)
+            # self.overcooked_renderer.render_trajectory_video(to_np(diff_traj), grid, output_dir=video_dir, video_path=diff_video_path, fps=1)
+            self.overcooked_renderer.visualize_all_channels(to_np(actual_traj[-1, :, :, :]), actual_video_path )
+            self.overcooked_renderer.visualize_all_channels(to_np(diff_traj[-1, :, :, :]), diff_video_path)
 
-        print(f"Saved Reference And Diffused Trajectory Videos.")
         avg_metrics = {f"eval_avg_{k}": np.mean(v) for k, v in metrics.items() if v}
         print(f"Evaluation Metrics (Step {self.step}): {avg_metrics}")  
         return avg_metrics

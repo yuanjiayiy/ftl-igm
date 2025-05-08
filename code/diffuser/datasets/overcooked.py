@@ -131,7 +131,7 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         self.action_dim = (0)
         self.cond_dim = 8 # input to model init, T5 self.conditions
 
-        self.observation_dim = self.obs_cond_dim = (8,5,26)
+        self.observation_dim = self.obs_cond_dim = (8,5,12)
         
             
         # self.observation_dim = np.prod(self.observations[0, 0, 0].shape) # every time step predict the skeleton: n joints x 3D pos
@@ -145,7 +145,7 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         self.maxs = 255
 
         self.path_lengths = [obs.shape[0] for obs in self.observations]
-        # self.indices = self.make_indices(self.path_lengths, self.horizon)
+        self.indices = self.make_indices(self.path_lengths, self.horizon)
         self.normalize()
     
     def generate_representation(self,str):
@@ -220,12 +220,21 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
     
     
     def __getitem__(self, idx, condition_single_input=True):
-        obs, actions, policy_id = self.dataset.__getitem__(idx)
+        path_idx, start, end = self.indices[idx]
+        obs = self.observations[path_idx]
+        actions = self.actions[path_idx]
+        policy_id = self.policy_id[path_idx]
+
+
+        # obs, actions, policy_id = self.dataset.__getitem__(idx)
         # obs: horizon x agent_num (2) x H x W x C
         # actions: horizon x 2 x action dim (1) 
         # policy : 2 (tuple)
     
         obs = self.normalize_init(obs)
+        player_loc_orietnations = obs[:, :, :, :, :10]
+        dish_onions = obs[:, :, :, :, 22:24]
+        obs = np.concatenate([player_loc_orietnations, dish_onions], axis=-1)
         T, _, H, W, C = obs.shape # Time, Agent, Height, Width, Channel 
 
 

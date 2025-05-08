@@ -378,7 +378,7 @@ from einops import repeat, rearrange
 class UnetMW(nn.Module):
     def __init__(self,
                 dim_mults=(1, 2, 4, 8),
-                H=8, W=5, C=26,
+                H=8, W=5, C=12,
                 *args, **kwargs):
         super(UnetMW, self).__init__()
         self.dim_mults = (1, 2)
@@ -476,9 +476,11 @@ class UnetMW(nn.Module):
 
         if force_dropout:
             cond = dummy_cond
+
+        cond = to_device(cond)
         
         # Cond will be embedded by the Unet
-        out = self.unet(x, time, to_device(cond))
+        out = self.unet(x, time, cond)
 
         # Restore original dimensions: [B, C, Horizon, H, W] -> [B, Horizon, H, W, C]
         out = rearrange(out, 'b c f h w -> b f h w c')
