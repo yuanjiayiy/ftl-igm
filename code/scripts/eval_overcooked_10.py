@@ -165,124 +165,88 @@ def full_horizon_eval(args, diffusion, dataset, idm, policy, device, show_sample
         episode_reward = np.zeros((n_envs, 2))
         max_steps = args.max_steps if hasattr(args, 'max_steps') else 400
         frames = [[obs[i][0]] for i in range(n_envs)]
+        samples_frames = [[] for _ in range(n_envs)]
 
         # Store the previous observation for conditioning
-        ego_obs = np.stack([dataset.normalize_init(obs[e][0]) for e in range(n_envs)], axis=0)
         grid = renderer.extract_grid_from_obs(obs[0][0])
         while not done and steps <= max_steps:
             print(f"Steps: {steps}")
-            # Condition Obs is the previous ego obs
-            player_loc_orientations = ego_obs[:, :, :, :10]
-            dish_onions = ego_obs[:, :, :,  22:24]
-            new_curr_obs = np.concatenate([player_loc_orientations, dish_onions], axis=-1)
-            condition_obs = th.tensor(new_curr_obs, device=device, dtype=th.float32) # Shape: [n_envs, H, W, C]
-            print(condition_obs.shape)
+
+            # Setup Condition Obs Based on Obs
+            obs_stack = np.stack([dataset.normalize_init(obs[e][0]) for e in range(n_envs)], axis=0)
+            print("obs_stack", obs_stack.shape)
+            obs_stack_player_loc_orientations = obs_stack[:, :, :, :10]
+            obs_stack_dish_onions = obs_stack[:, :, :,  22:24]
+
+            print("obs_stack_others", obs_stack_player_loc_orientations.shape, obs_stack_dish_onions.shape)
+            obs_stack_12_channels = np.concatenate([obs_stack_player_loc_orientations, obs_stack_dish_onions], axis=-1)
+            
+            condition_obs = th.tensor(obs_stack_12_channels, device=device, dtype=th.float32) # Shape: [n_envs, H, W, C]
+            
+            assert condition_obs.shape[-1] == 12 # Double Check
+
             with th.no_grad():
                 samples = diffusion.p_sample_loop(
                     shape=(n_envs, dataset.horizon, H, W, C),
-                    cond=dummy_cond,
+                    cond=cond,
                     dummy_cond=dummy_cond,
-                    cond_obs=condition_obs[:, :, :, :12],
-                ).trajectories
+                    cond_obs=condition_obs,
+                ).trajectories # Shape [n_envs, horizon, H, W , C]
             
-            # _ = [renderer.render_trajectory_video(
-            #         to_np(th.cat(samples[env_i], )), 
-            #         grid, 
-            #         output_dir=video_dir, 
-            #         fps=1, 
-            #         video_path=os.path.join(video_dir, f"sampled_trajectory_env_{env_i}_ep_{episode}_step_{steps}.mp4")
-            #         ) for env_i in range(n_envs)]
-            samples_first_10 = samples[:, :, :, :, :10]
-            samples_one_hot_10 = arg_max(samples_first_10)
+            # Render out Samples
+            samples_player_loc = samples[:, :, :, :, :10]
             samples_dish_onions = samples[:, :, :, :, 10:12]
-            samples_one_hot_10 = th.cat([samples_one_hot_10, samples_dish_onions],dim=-1)
-
-
-            missing_channels_11_21 = to_torch(obs[0][0][:, :, 10:22]).unsqueeze(0).unsqueeze(0)
-            missing_channels_24_26 = to_torch(obs[0][0][:, :, 24:]).unsqueeze(0).unsqueeze(0)
-
-            missing_channels_11_21_repeated = missing_channels_11_21.repeat(samples.shape[0], samples.shape[1], 1, 1, 1)  
-            missing_channels_24_26_repeated = missing_channels_24_26.repeat(samples.shape[0], samples.shape[1], 1, 1, 1)  
-
-            combined = th.cat([
-                samples_one_hot_10[:, :, :, :, :10],  # Channels 0-10
-                missing_channels_11_21_repeated,  # Channels 11-21
-                samples_one_hot_10[:, :, :, :, 10:12],  # Channels 22-24
-                missing_channels_24_26_repeated  # Channels 24-26
-            ], dim=-1)  # Shape: [n_envs, horizon, H, W, 26]
-
-
-            samples_one_hot_padded = combined
-            # samples_one_hot_padded = th.cat([samples_one_hot_10, obs[0][:, :, :, :, obs_channels:26]], dim=-1)
-
-            _ = [renderer.render_trajectory_video(
-                    to_np(samples_one_hot_padded[env_i]), 
-                    grid, 
-                    output_dir=video_dir, 
-                    fps=1, 
-                    video_path=os.path.join(video_dir, f"argmax_trajectory_ep_{episode}_step_{steps}_env_{env_i}.mp4")
-                ) for env_i in range(n_envs)]
-            
-            _ = [renderer.visualize_all_channels(
-                    obs=to_np(samples_one_hot_10[0, i]), 
-                    output_dir=os.path.join(frames_dir, f"argmax_channels_step_{i}_env_{0}.png")
-                ) for i in range(32)]
-            
-            _ = [renderer.visualize_all_channels(
+            if show_samples:
+                _ = [renderer.visualize_all_channels(
                     obs=to_np(samples[0, i]), 
-                    output_dir=os.path.join(frames_dir, f"channels_channels_step_{i}_env_{0}.png")
-                ) for i in range(32)]
+                    output_dir=os.path.join(frames_dir, f"samples_channels_steps_{steps}_horizon_{i}_env_{0}.png")
+                ) for i in range(dataset.horizon)]
             
-            exit()
+            samples_player_loc = arg_max(samples_player_loc)
+            samples_12_final = th.cat([samples_player_loc, samples_dish_onions],dim=-1)
+
+            if show_samples:
+                _ = [renderer.visualize_all_channels(
+                    obs=to_np(samples_12_final[0, i]), 
+                    output_dir=os.path.join(frames_dir, f"argmax_samples_channels_steps_{steps}_horizon_{i}_env_{0}.png")
+                ) for i in range(dataset.horizon)]
+
             
-            # if True:
-            #     idx = t_vis = 1
-            #     samples_first_10_dir = osp.join(frames_dir,f"samples_raw_ep{episode}_step{steps}.png")
-            #     samples_one_hot_10_dir = osp.join(frames_dir,f"samples_argmax_ep{episode}_step{steps}.png")
-            #     renderer.visualize_all_channels(to_np(samples_first_10[idx, t_vis]), output_dir=samples_first_10_dir)
-            #     renderer.visualize_all_channels(to_np(samples_one_hot_10[idx, t_vis]), output_dir=samples_one_hot_10_dir)
-        
             # Now step through the environment using the 32-step plan
             plan_horizon = min(dataset.horizon, max_steps - steps)
 
-            steps += 32
-
             # We begin with the first ego obs (first obs of the environment)
-            obs_t = ego_obs
-            for t in range(plan_horizon): #0->32; 0-> 400-current steps
-                continue
-                # Build (obs_t+1) from the samples_one_hot_10
-                pred_part = samples_one_hot_10[:, t] # Shape: [n_envs, H, W, 10]
-                pred_part = to_np(pred_part)
-                current_actual_obs_norm = np.stack([dataset.normalize_init(obs[e][0]) for e in range(n_envs)], axis=0)
-
-                #Append the orientation...channels to samples_one_hot_10
-                rest_actual_obs = current_actual_obs_norm[..., obs_channels:C] # Shape: [n_envs, H, W, obs_channels:C]
-                obs_tp1 = np.concatenate([pred_part, rest_actual_obs], axis=-1) # Shape: [n_envs, H, W, 26]
-
-                for idx in range(3):
-                    samples_first_10_dir = os.path.join(frames_dir,f"obs_t_env_{idx}_ep_{episode}_step_{steps}_{t}.png")
-                    amples_first_10_dir = os.path.join(frames_dir,f"obs_tp1_env_{idx}_ep_{episode}_step_{steps}_{t}.png")
-                    renderer.save_obs_image(to_np(obs_t[idx, :, :, :]), grid, file_path=samples_first_10_dir)
-                    renderer.save_obs_image(to_np(obs_tp1[idx, :, :, :]),grid, file_path=amples_first_10_dir)
-                    samples_first_10_dir = os.path.join(frames_dir,f"obs_t_env_{idx}_ep_{episode}_step_{steps}_{t}_ch.png")
-                    amples_first_10_dir = os.path.join(frames_dir,f"obs_tp1_env_{idx}_ep_{episode}_step_{steps}_{t}_ch.png")
-                    renderer.visualize_all_channels(to_np(obs_t[idx, :, :, :]), output_dir=samples_first_10_dir)
-                    renderer.visualize_all_channels(to_np(obs_tp1[idx, :, :, :]), output_dir=amples_first_10_dir)
+            obs_t = to_torch(obs_stack) # 3,8,5,26
+            for t in range(plan_horizon): 
                 
-                
+                # Unpack Samples_12_final
+                samples_final_player_loc = samples_12_final[:, t, :, :, :10]
+                samples_final_dishes_onions = samples_12_final[:, t, :, :, 10:12]
 
+                # Build (obs_t+1) from the samples_12_final
+                current_obs = np.stack([dataset.normalize_init(obs[e][0]) for e in range(n_envs)], axis=0)
+                curr_obs_11_22 = to_torch(current_obs[..., 10:22])
+                curr_obs_24_26 = to_torch(current_obs[..., 24:])
+
+                obs_tp1 = th.cat([
+                    samples_final_player_loc,
+                    curr_obs_11_22,
+                    samples_final_dishes_onions,
+                    curr_obs_24_26
+                ], dim=-1)
+
+                for e in range(n_envs):
+                    samples_frames[e].append(to_np(obs_tp1[e]))
+
+            
                 step_actions = np.zeros((n_envs, 2, 1), dtype=np.int64)
 
                 for env_i in range(n_envs):
-                    ego_action = get_idm_action(to_torch(obs_t[env_i, :, :, :]).unsqueeze(0), to_torch(obs_tp1[env_i, :, :, :]).unsqueeze(0), idm)
+                    # IDM takes in 26 channels
+                    ego_action = get_idm_action(to_torch(obs_t[env_i]).unsqueeze(0), to_torch(obs_tp1[env_i]).unsqueeze(0), idm)
                     step_actions[env_i, 0 ] = to_np(ego_action)
 
-                # ALL_ACTIONS = INDEX_TO_ACTION = Direction.INDEX_TO_DIRECTION + [
-                #     STAY,
-                #     INTERACT,
-                # ]
-                
+                    
                 partner_obs_lst = [obs[e][1] for e in range(n_envs)]
                 partner_obs = np.stack(partner_obs_lst, axis=0)
 
@@ -297,14 +261,11 @@ def full_horizon_eval(args, diffusion, dataset, idm, policy, device, show_sample
                 print(step_actions)
 
                 obs, shared_obs, reward, done, info, aval_actions = envs.step(step_actions)
-
-                renderer.save_obs_image(obs[0][0], grid, os.path.join(frames_dir,f"next_obs_{t}.png"))
+                episode_reward += to_np(reward).squeeze(axis=2)
+                obs_t = obs_tp1
                 
                 for e in range(n_envs):
                     frames[e].append(obs[e][0])
-
-                episode_reward += to_np(reward).squeeze(axis=2)
-                obs_t = obs_tp1
 
                 # Check for early termination
                 done = np.all(done)
@@ -333,8 +294,15 @@ def full_horizon_eval(args, diffusion, dataset, idm, policy, device, show_sample
                 frames[e], 
                 grid, 
                 output_dir=env_dir,
-                video_path=osp.join(env_dir, f"trajectory.mp4"),
+                video_path=osp.join(env_dir, f"actual_trajectory.mp4"),
                 fps=1)
+            _ = renderer.render_trajectory_video(
+                samples_frames[e],
+                grid,
+                output_dir=env_dir,
+                video_path=osp.join(env_dir, f"samples_trajectory.mp4"),
+                fps=1
+            )
             print(f"Video saved to {saved_video}")
     
     if episode_rewards:
@@ -422,4 +390,4 @@ if __name__ == "__main__":
         policy=policy,
         device=device,
         show_samples=True,
-        eval_episodes=1    )
+        eval_episodes=1)
