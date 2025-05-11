@@ -3,9 +3,6 @@ import torch.nn as nn
 import einops
 from einops.layers.torch import Rearrange
 from torch.distributions import Bernoulli
-from diffuser.utils import to_device
-import torch.nn.functional as F
-
 
 
 from .helpers import (
@@ -65,7 +62,6 @@ class TemporalUnet(nn.Module):
         condition_dropout=0.1,
         calc_energy=False,
         kernel_size=5,
-        num_embeddings=100,
     ):
         super().__init__()
 
@@ -81,7 +77,6 @@ class TemporalUnet(nn.Module):
             act_fn = nn.Mish()
 
         time_dim = dim
-        # time embedding of the vector
         self.time_mlp = nn.Sequential(
             SinusoidalPosEmb(dim),
             nn.Linear(dim, dim * 4),
@@ -89,9 +84,7 @@ class TemporalUnet(nn.Module):
             nn.Linear(dim * 4, dim),
         )
 
-        self.history_encoder = ConvLSTMModel(hidden_dim=dim, output_dim=obs_cond_dim)
-        # self.history_encoder2 = SpatiotemporalTransformer(in_channels=obs_cond_dim, embed_dim=dim, num_heads=4)
-        self.embedding = nn.Embedding(num_embeddings=num_embeddings, embedding_dim=8)
+        self.embedding = nn.Embedding(num_embeddings=8, embedding_dim=cond_dim) # num_embeddings is a placeholder
 
         self.returns_condition = returns_condition
         self.condition_dropout = condition_dropout
@@ -152,7 +145,7 @@ class TemporalUnet(nn.Module):
         resnet18 = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=True)
         self.resnet18 = torch.nn.Sequential(*list(resnet18.children())[:-1])
 
-    def forward(self, x, cond, time, dummy_cond=None, cond_obs=None, cond_mask=None, cond_im=None, use_dropout=True, force_dropout=False):
+    def forward(self, x, cond, time, dummy_cond=None, cond_obs=None, cond_im=None, use_dropout=True, force_dropout=False):
         '''
             x : [ batch x horizon x transition ] # full trajectory where first state matches cond_obs
             cond: [ batch x cond_dim ] # text embedding
@@ -160,18 +153,15 @@ class TemporalUnet(nn.Module):
             cond_obs: [ batch x transition ] # first state
             cond_im: [ batch x C x H x W ] # first state
         '''
-        # print("x.shape", x.shape, x.dtype, "cond.shape", cond.shape, cond.dtype, "dummy_cond.shape", dummy_cond.shape, dummy_cond.dtype,
-        #       "cond_obs.shape", cond_obs.shape, cond_obs.dtype, "time.shape", time.shape)
-        
-        x = einops.rearrange(x, 'b h t -> b t h')
         # import pdb; pdb.set_trace()
+        
+   
+        x = einops.rearrange(x, 'b h t -> b t h')
 
         t = self.time_mlp(time)
-        cond_obs_encoded = self.history_encoder(cond_obs)
-        # cond_obs_encoded2 = self.history_encoder2(cond_obs, cond_mask)
+
+        input_cond = cond #concept embedding
         
-        input_cond = cond
-        # print(input_cond.shape, dummy_cond.shape, cond_obs_encoded.shape)
         if self.returns_condition:
             assert dummy_cond is not None
             if use_dropout:
@@ -180,13 +170,12 @@ class TemporalUnet(nn.Module):
             if force_dropout:
                 input_cond = dummy_cond #replace with fake cond
         if cond_im is not None:
-            cond_im = torch.cat([cond_obs, self.resnet18(cond_im).squeeze(2,3)], dim=-1)
+            cond_obs = torch.cat([cond_obs, self.resnet18(cond_im).squeeze(2,3)], dim=-1)
         
-        input_cond = self.embedding(input_cond.long())
-        # print(input_cond.shape, dummy_cond.shape, cond_obs_encoded.shape)   
-        # import pdb; pdb.set_trace()
-        # print(t.shape, input_cond.shape, cond_obs_encoded.shape)
-        t = torch.cat([t, input_cond, cond_obs_encoded], dim=-1)
+        input_cond = self.embedding(input_cond)
+        # print("x.shape", x.shape, x.dtype, "cond.shape", cond.shape, cond.dtype, "dummy_cond.shape", dummy_cond.shape, dummy_cond.dtype,
+        #       "cond_obs.shape", cond_obs.shape, cond_obs.dtype, "t.shape", t.shape, "input_cond.shape", input_cond.shape, input_cond.dtype)
+        t = torch.cat([t, input_cond, cond_obs], dim=-1)
         h = []
 
         for resnet, resnet2, attn, downsample in self.downs:
@@ -195,8 +184,7 @@ class TemporalUnet(nn.Module):
             x = attn(x)
             h.append(x)
             x = downsample(x)
-            
-
+        
         x = self.mid_block1(x, t)
         x = self.mid_attn(x)
         x = self.mid_block2(x, t)
@@ -301,189 +289,3 @@ class MLPnet(nn.Module):
         else:
             return out
 
-
-class ConvLSTMModel(nn.Module):
-    def __init__(self, hidden_dim=128, output_dim=10):
-        super(ConvLSTMModel, self).__init__()
-        
-        # Conv2D encoder to process spatial input [C, W, H]
-        self.spatial_encoder = nn.Sequential(
-            nn.Conv2d(in_channels=26, out_channels=32, kernel_size=3, padding=1),  # [B*T, 32, 8, 5]
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),                            # [B*T, 64, 8, 5]
-            nn.ReLU(),
-            nn.AdaptiveMaxPool2d((1, 1)),                                           # [B*T, 64, 1, 1]
-            nn.Flatten(),                                                           # [B*T, 64]
-        )
-        
-        self.lstm = nn.LSTM(input_size=64, hidden_size=hidden_dim, batch_first=True)
-        self.fc = nn.Linear(hidden_dim, output_dim)
-
-    def forward(self, x):
-
-        B, T, W, H, C = x.shape  # [batch, time, width, height, channel]
-        
-        # Reshape to [B*T, C, W, H] for Conv2d
-        x = x.permute(0, 1, 4, 2, 3).contiguous()      # [B, T, C, W, H]
-        x = x.view(B * T, C, W, H)                     # [B*T, C, W, H]
-
-        # Spatial encoder (Conv2d layers)
-        x = self.spatial_encoder(x)                   # [B*T, 64]
-
-        # Reshape back to [B, T, 64] for LSTM
-        x = x.view(B, T, -1)
-
-        # LSTM
-        lstm_out, (hn, _) = self.lstm(x)
-        output = self.fc(hn[-1])                      # Use last hidden state
-        return output
-
-
-class SpatiotemporalTransformer(nn.Module):
-    def __init__(self, in_channels=26, embed_dim=128, num_heads=4):
-        super().__init__()
-        self.embed = nn.Linear(in_channels, embed_dim)
-        self.pos_embed = nn.Parameter(torch.randn(32, 8, 5, embed_dim))  # [T, H, W, D]
-        self.attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
-        self.output_proj = nn.Linear(embed_dim, embed_dim)
-
-    def forward(self, cond_inputs, cond_masks):
-        """
-        cond_inputs: [B, T, H, W, C]
-        cond_masks: [B, T], 1 = real, 0 = pad
-        """
-        B, T, H, W, C = cond_inputs.shape
-        x = self.embed(cond_inputs)  # [B, T, H, W, D]
-
-        # Add positional encoding (broadcasted across batch)
-        x = x + self.pos_embed[:T, :H, :W]  # [B, T, H, W, D]
-
-        # Flatten T x H x W into sequence
-        x = x.view(B, T * H * W, -1)  # [B, L, D], L = T*H*W
-
-        # Build attention mask (mask invalid time steps across the whole spatial patch)
-        # cond_masks: [B, T] → [B, T, 1, 1] → broadcast to [B, T, H, W]
-        mask = cond_masks[:, :, None, None].expand(B, T, H, W).reshape(B, T * H * W)  # [B, L]
-        attn_mask = ~mask.bool()  # True = ignore (padded)
-
-        # Multi-head attention expects [B, L, D]
-        x_attn, _ = self.attn(x, x, x, key_padding_mask=attn_mask)  # [B, L, D]
-        x_out = self.output_proj(x_attn)  # optional projection
-
-        return x_out.view(B, T, H, W, -1)  # return to original 2D+time layout
-
-from .guided_diffusion.unet import UNetModel
-from einops import repeat, rearrange
-
-class UnetMW(nn.Module):
-    def __init__(self,
-                dim_mults=(1, 2, 4, 8),
-                H=8, W=5, C=26,
-                *args, **kwargs):
-        super(UnetMW, self).__init__()
-        self.dim_mults = (1, 2)
-        self.num_classes = 24 # 24 Partner Agent Policies for Counter Circuit
-        self.task_tokens = False # Use Num Classes Instead
-        self.dropout = 0.1 # Dropout for the ResBlock
-        self.unet_params = {
-            "dims": 3, # 3 for video
-            "model_channels": 128,
-            "num_res_blocks": 2,
-            "attention_resolutions": (8, 16),
-            "conv_resample": True,
-            "task_token_channels": 512,
-            "use_checkpoint": False,
-            "use_fp16": False,
-            "num_head_channels": 32,
-        }
-        self.H, self.W, self.C = H, W, C
-        init_H_pad = H + (H % 2)
-        init_W_pad = W + (W % 2)
-        self._init_unet(init_H_pad, init_W_pad, C)
-    
-    def _init_unet(self,H_pad,W_pad,C):
-        self.H, self.W, self.C = H_pad, W_pad, C
-        print(f"[_init_unet] Initializing UNet with H={H_pad}, W={W_pad}, C={C}")
-        self.unet = UNetModel(
-            image_size=(H_pad,W_pad),
-            in_channels=C*2, #26 Obs Channels + 26 Conditional Obs Channels
-            out_channels=C, # Return just 26 channels
-            dropout=self.dropout,
-            num_classes= self.num_classes,
-            task_tokens=self.task_tokens,
-            channel_mult=self.dim_mults,
-            **self.unet_params,
-        )
-        self.unet.to('cuda:0' if torch.cuda.is_available() else 'cpu')
-    def pad_even(self, x):
-        """Pads the Height and Width dimensions (dims 2 and 3 for 5D) to be even."""
-        if x.dim() == 5: # Input: (B, F, H, W, C)
-            B, _, H, W, C = x.shape
-            pad_h = (H % 2)
-            pad_w = (W % 2)
-            # Pad tuple order: (pad_dim4_L, R, pad_dim3_L, R, pad_dim2_L, R)
-            pad_tuple = (0, 0, 0, pad_w, 0, pad_h)
-        elif x.dim() == 4: # Input: (B, H, W, C)
-            B, H, W, C = x.shape
-            pad_h = (H % 2)
-            pad_w = (W % 2)
-            # Pad tuple order: (pad_dim3_L, R, pad_dim2_L, R, pad_dim1_L, R)
-            pad_tuple = (0, 0, 0, pad_w, 0, pad_h)
-        else:
-             raise ValueError(f"pad_even expects 4D or 5D tensor, got {x.dim()}D")
-
-        x_padded = F.pad(x, pad_tuple, mode='constant', value=0)
-        return x_padded
-
-    def forward(self, x, cond, time, dummy_cond=None, cond_obs=None, cond_mask=None, cond_im=None, force_dropout=False, use_dropout=True):
-        """
-        x: [batch, horizon, H, W, C] - trajectory observations
-        cond: [batch] - policy indice of partner agent
-        time: [batch] - timestep encoding
-        dummy_cond: optional placeholder condition
-        cond_obs: [batch, H, W, C] or [batch, history_len, H, W, C] - condition observations
-        cond_mask: [batch, history_len] - mask for valid history timesteps
-        """
-        # print("x.shape", x.shape, x.dtype, "cond.shape", cond.shape, cond.dtype, "dummy_cond.shape", dummy_cond.shape, dummy_cond.dtype,
-        #       "cond_obs.shape", cond_obs.shape, cond_obs.dtype, "time.shape", time.shape, "cond_mask", cond_mask.shape)
-        
-        if x.dim() != 5:
-            raise ValueError(f"Expected 5D input (batch, horizon, H, W, C). Got: {x.shape}")
-        
-        # Initialize Unet
-        _, _, original_H, original_W, _ = x.shape
-        x = self.pad_even(x)
-        _, Horizon, H, W, C = x.shape
-        if (self.H, self.W, self.C) != (H, W, C):
-            self._init_unet(H, W, C)
-
-        # Reshape X for Unet Processing -> (B, C, Horizon, H, W)
-        x = rearrange(x, 'b f h w c -> b c f h w')
-        # Condition Observation Handling
-        if cond_obs is not None:
-            if cond_mask is not None:
-                cond_obs = cond_obs[cond_mask == 1.0]
-            if cond_obs.ndim == 4: # [B, H, W, C] One Image
-                # Reshape to (B, C, 1, H, W)
-                x_cond = self.pad_even(cond_obs)
-                x_cond = rearrange(x_cond, 'b h w c -> b c 1 h w')
-                # Replicate Channels Across Horizon --> From AVDC paper
-                x_cond = repeat(x_cond, 'b c 1 h w -> b c f h w', f=Horizon)
-                # Concatenate x, x_cond
-                x = torch.cat([x, x_cond], dim=1).to(device="cuda:0")
-            else:
-                raise NotImplemented("Unet Is Not Implemented To Be Conditioned on a History of Observations")
-
-        if force_dropout:
-            cond = dummy_cond
-        
-        # Cond will be embedded by the Unet
-        out = self.unet(x, time, to_device(cond))
-
-        # Restore original dimensions: [B, C, Horizon, H, W] -> [B, Horizon, H, W, C]
-        out = rearrange(out, 'b c f h w -> b f h w c')
-
-        # Remove Padding
-        out = out[:, :, :original_H, :original_W, :]
-        return out
-    

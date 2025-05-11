@@ -12,6 +12,7 @@ from diffuser.datasets.object_rearrangement import *
 from diffuser.datasets.AGENT import *
 from diffuser.datasets.mocap import *
 from diffuser.datasets.highway import *
+from diffuser.datasets.overcooked import *
 
 import wandb
 
@@ -76,7 +77,7 @@ class Trainer(object):
         self.gradient_accumulate_every = gradient_accumulate_every
         self.dataset = dataset
         self.dataloader = cycle(torch.utils.data.DataLoader(
-            self.dataset, batch_size=train_batch_size, num_workers=1, shuffle=True, pin_memory=True
+            self.dataset, batch_size=train_batch_size, num_workers=0, shuffle=True, pin_memory=True
         ))
         self.dataloader_vis = cycle(torch.utils.data.DataLoader(
             self.dataset, batch_size=1, num_workers=0, shuffle=True, pin_memory=True
@@ -122,7 +123,7 @@ class Trainer(object):
             for _ in range(self.gradient_accumulate_every):
                 if not invert_model:
                     batch = next(self.dataloader)
-                    batch = batch_to_device(batch)
+                    batch = batch_to_device(batch, device='cpu')
                     loss, infos = self.model.loss(*batch)
                 else:
                     loss, infos = self.invert_model()
@@ -677,7 +678,7 @@ class TrainerOvercooked(Trainer):
             bucket=bucket,
         )
         self.overcooked_renderer = OvercookedSampleRenderer()
-    def render_samples(self, batch_size=1, n_samples=10):
+    def render_samples(self, batch_size=1, n_samples=2):
         video_dir = os.path.join(self.logdir, "eval_videos")
         os.makedirs(video_dir, exist_ok=True)
 
@@ -688,24 +689,23 @@ class TrainerOvercooked(Trainer):
             "final_state_mae": [],
         }
         for i in range(n_samples):
-            idx = random.randint(0, len(self.dataset) - 1)
+            idx = random.randint(0, len(self.dataset.indices) - 1)
             
             # Get A Random Sample From Database
             sample = self.dataset.__getitem__(idx)
             cond = to_torch(sample.conditions, torch.int64).unsqueeze(0)
             dummy_cond = to_torch(sample.dummy_cond, torch.int64).unsqueeze(0)
-            H, W, C = self.dataset.observation_dim
             
             
             # Get First Conditional Observation
-            cond_obs = to_torch(sample.conditions_obs) # [Horizon, H, W, C]
-            cond_obs = cond_obs[0,:,:,:].unsqueeze(0)
+            cond_obs = to_torch(sample.conditions_obs).unsqueeze(0) # [Horizon, H, W, C]
             with torch.no_grad():
                 diffusion_samples = self.model.p_sample_loop( # TODO: Can use EMA Model Here
-                    shape=(1, self.dataset.horizon, H, W, C),
+                    shape=(1, self.dataset.horizon, self.dataset.observation_dim),
                     cond=cond,
                     dummy_cond=dummy_cond,
                     cond_obs=cond_obs,
+                    verbose=False,
                 )
             # Get Trajectories and Compute Difference
             actual_traj = to_torch(sample.trajectories)
@@ -727,9 +727,15 @@ class TrainerOvercooked(Trainer):
             metrics['final_state_mae'].append(final_state_mae)
 
             # Save Trajectory Videos
-            grid = self.overcooked_renderer.extract_grid_from_obs(actual_traj[0])
+            grid_height, grid_width = 8, 5
+            grid = self.overcooked_renderer.extract_grid_from_obs(np.zeros([grid_height, grid_width]))
+
             actual_video_path = os.path.join(video_dir, f"reference_trajectory_{i}_step_{self.step}_eval.mp4")
             diff_video_path = os.path.join(video_dir, f"predicted_trajectory_{i}_step_{self.step}_eval.mp4")
+
+            actual_traj = np.array([reconstruct_spatial_tensor(self.dataset.unnormalize(actual_traj[i])) for i in range(len(actual_traj))])
+            diff_traj = np.array([reconstruct_spatial_tensor(self.dataset.unnormalize(diff_traj[i])) for i in range(len(diff_traj))])
+            
             
             self.overcooked_renderer.render_trajectory_video(to_np(actual_traj), grid, output_dir=video_dir, video_path=actual_video_path, fps=1)
             self.overcooked_renderer.render_trajectory_video(to_np(diff_traj), grid, output_dir=video_dir, video_path=diff_video_path, fps=1)
@@ -753,7 +759,9 @@ class TrainerOvercooked(Trainer):
             frames = []
             for obs in traj:
                 frames.append(obs)
-            grid = self.overcooked_renderer.extract_grid_from_obs(frames[0])
+            grid_height, grid_width = 8, 5
+            frames = np.array([reconstruct_spatial_tensor(self.dataset.unnormalize(frames[i])) for i in range(len(frames))])
+            grid = self.overcooked_renderer.extract_grid_from_obs(np.zeros([grid_height, grid_width]))
             video_path = os.path.join(video_dir, f"reference_traj_{i}_step_{self.step}_agent_id_{conditions[i]}.mp4")
             self.overcooked_renderer.render_trajectory_video(frames, grid, output_dir=video_dir, video_path=video_path, fps=1)
             print(f"Saved Reference Trajectory Video {i} to {video_path} with condition: {conditions[i]}")

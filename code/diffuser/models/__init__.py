@@ -1,2 +1,2 @@
-from .temporal import TemporalUnet, MLPnet, UnetMW
+from .temporal import TemporalUnet, MLPnet
 from .diffusion import GaussianDiffusion

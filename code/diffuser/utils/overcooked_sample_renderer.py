@@ -228,12 +228,12 @@ class OvercookedSampleRenderer:
         surface.fill((155,101,0))
 
         if un_normalize:
-            obs = self.normalize_obs(obs)
+            obs = self.normalize_obs(obs) 
         
         self._render_grid(surface, grid)
-        # self._render_objects(surface, obs, grid, eps)
-        # self._render_cooking_timers(surface, obs, grid, eps)
-        self._render_players(surface, obs, eps)
+        self._render_objects(surface, obs, grid, eps)
+        self._render_cooking_timers(surface, obs, grid, eps)
+        self._render_players(surface,obs, eps)
 
         return surface
     
@@ -366,7 +366,7 @@ class OvercookedSampleRenderer:
     
 
     def save_obs_image(self, obs, grid, file_path, scale=4):
-        surface = self.render_frame(obs, grid, un_normalize=False)
+        surface = self.render_frame(obs, grid)
         if scale != 1:
             surface = scale_surface_by_factor(surface, scale)
         pygame.image.save(surface, file_path)

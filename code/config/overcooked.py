@@ -18,7 +18,7 @@ logbase = 'logs'
 base = {
     'diffusion': {
         ## model
-        'model': 'models.UnetMW',
+        'model': 'models.TemporalUnet',
         'diffusion': 'models.GaussianDiffusion',
         'horizon': 32,
         'n_diffusion_steps': 100,
@@ -39,7 +39,7 @@ base = {
         'max_path_length': 400,
         'episode_length': 400,
         'chunk_length': 64,
-        'dataset_path': "data/overcooked_dataset/counter_circuit_o_1order_mep/dataset.hdf5",
+        'dataset_path': "data/overcooked_dataset/counter_circuit_o_1order_mini/dataset.hdf5",
 
         ## serialization
         'logbase': logbase,
@@ -61,7 +61,7 @@ base = {
         'save_parallel': False,
         'n_reference': 4, #8,
         'bucket': None,
-        'device': 'cuda',
+        'device': 'cpu',
         'seed': None,
     },
 
@@ -71,7 +71,7 @@ base = {
         'policy': 'sampling.GuidedPolicy',
         'max_episode_length': 1000,
         'batch_size': 64,
-        'device': 'cuda',
+        'device': 'cpu',
         'seed': None,
 
         ## sample_kwargs

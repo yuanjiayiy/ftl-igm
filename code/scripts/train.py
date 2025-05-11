@@ -1,6 +1,7 @@
 from scripts.eval_train import closed_loop_overcooked
 from scripts_utils import Parser
 import diffuser.utils as utils
+import wandb
 
 
 #-----------------------------------------------------------------------------#
@@ -10,6 +11,11 @@ import diffuser.utils as utils
 
 if __name__ == "__main__":
     args = Parser().parse_args('diffusion')
+    wandb.init(
+    project="overcooked_idm",
+    entity="social-rl",
+    name="overcooked_idm",
+    config=args)
 
     # dataset
     dataset_config = utils.Config(

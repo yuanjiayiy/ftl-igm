@@ -6,6 +6,7 @@ from collections import namedtuple
 from ..utils.rendering import *
 import gymnasium as gym
 import copy
+import math
 
 from transformers import T5Tokenizer, T5EncoderModel
 
@@ -15,19 +16,24 @@ from transformers import T5Tokenizer, T5EncoderModel
 # subpolicy_name: "init" "mid" "final" -> 00, 01, 02
 # index: 0, 1, 2, ... -> 00, 01, 02, ...
 # for example, "counter_circuit_o_1order_mep mep2_final" -> 00000202
-policy_name_dict = {"counter_circuit_o_1order_mep": 
+policy_name_dict = {"counter_circuit_o_1order_mini": 
                     ['mep1_final', 'mep1_init', 'mep1_mid', 'mep2_final', 'mep2_init', 'mep2_mid', 'mep3_final', 'mep3_init', 'mep3_mid', 'mep4_final', 'mep4_init', 'mep4_mid', 'mep5_final', 'mep5_init', 'mep5_mid', 'mep6_final', 'mep6_init', 'mep6_mid', 'mep7_final', 'mep7_init', 'mep7_mid', 'mep8_final', 'mep8_init', 'mep8_mid']}
 
 
 def to_tensor(x, dtype=torch.float, device='cpu'):
     return torch.tensor(x, dtype=dtype, device=device)
 
-Batch = namedtuple('Batch', 'trajectories conditions dummy_cond conditions_obs conditions_mask') #trajectories: output traj, conditions: concept (text embedding), conditions_obs: condition on curr obs (model needs to predict next steps, create batches based on curr obs any t from training demos)
+Batch = namedtuple('Batch', 'trajectories conditions dummy_cond conditions_obs') #trajectories: output traj, conditions: concept (text embedding), conditions_obs: condition on curr obs (model needs to predict next steps, create batches based on curr obs any t from training demos)
 
 has_cuda = torch.cuda.is_available()
 device = torch.device('cpu' if not has_cuda else 'cuda')
 tokenizer = T5Tokenizer.from_pretrained("google/flan-t5-base")
 model = T5EncoderModel.from_pretrained("google/flan-t5-base").to(device)
+
+PLAYER0_CHANNEL_INDEX = 0
+PLAYER0_ORIENT_CHANNELS = list(range(2, 6))
+PLAYER1_CHANNEL_INDEX = 1
+PLAYER1_ORIENT_CHANNELS = list(range(6, 10))
 
 
 def plot_traj(traj, init_s, save_fig_path, n_vehicles, feat_dim, sample_state=None, cond_text=''):
@@ -96,6 +102,49 @@ def safe_deepcopy_env(obj):
             setattr(result, k, None)
     return result
 
+def extract_flat_features(state):
+    features = []
+
+    def get_player_location(player_channel_index, player_orient_channels):
+        # Example: find player 0 location
+        player0_channel = state[..., player_channel_index]
+        player0_pos = np.argwhere(player0_channel > 0)
+        if player0_pos.size:
+            x, y = player0_pos[0]
+        else:
+            x, y = -1, -1 # default/failure case
+
+        # Example: orientation (assume 4 one-hot channels)
+        player0_orient = np.argmax([np.any(state[..., ch]) for ch in player_orient_channels])
+        return [x, y, player0_orient]
+        
+    features.extend(get_player_location(PLAYER0_CHANNEL_INDEX, PLAYER0_ORIENT_CHANNELS))
+    features.extend(get_player_location(PLAYER1_CHANNEL_INDEX, PLAYER1_ORIENT_CHANNELS))
+
+    return np.array(features, dtype=np.float32)
+
+def reconstruct_spatial_tensor(flat_features, H=8, W=5, C=26):
+
+    state = np.zeros((H, W, C), dtype=np.float32)
+
+    # Extract from flat features
+    x0, y0, orient0 = map(lambda x: int(np.rint(x)), flat_features[0:3])
+    x1, y1, orient1 = map(lambda x: int(np.rint(x)), flat_features[3:6])
+
+    # Set player 0 location and orientation
+    if 0 <= x0 < H and 0 <= y0 < W:
+        state[x0, y0, PLAYER0_CHANNEL_INDEX] = 1.0
+        if 0 <= orient0 < 4:
+            state[x0, y0, PLAYER0_ORIENT_CHANNELS[orient0]] = 1.0
+
+    # Set player 1 location and orientation
+    if 0 <= x1 < H and 0 <= y1 < W:
+        state[x1, y1, PLAYER1_CHANNEL_INDEX] = 1.0
+        if 0 <= orient1 < 4:
+            state[x1, y1, PLAYER1_ORIENT_CHANNELS[orient1]] = 1.0
+
+    return state
+
 
 class OvercookedSequenceDataset(torch.utils.data.Dataset):
 
@@ -129,9 +178,7 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         
         
         self.action_dim = (0)
-        self.cond_dim = 8 # input to model init, T5 self.conditions
-
-        self.observation_dim = self.obs_cond_dim = (8,5,26)
+        self.cond_dim = 8 # Agent ID
         
             
         # self.observation_dim = np.prod(self.observations[0, 0, 0].shape) # every time step predict the skeleton: n joints x 3D pos
@@ -140,13 +187,21 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         
         self.n_episodes = len(self.observations)
         
-        # mins and max 0, 255
-        self.mins = 0
-        self.maxs = 255
+        B, T, N, H, W, C = self.observations.shape
+        flat_features = [
+            extract_flat_features(self.observations[b, t, 0])
+            for b in range(B)
+            for t in range(T)
+        ]
 
-        self.path_lengths = [obs.shape[0] for obs in self.observations]
-        # self.indices = self.make_indices(self.path_lengths, self.horizon)
-        self.normalize()
+        self.obs_cond_dim = self.observation_dim = len(flat_features[0]) # initial state dimension
+        reshaped_obs = np.vstack(flat_features)
+        self.mins = reshaped_obs.min(axis=0)
+        self.maxs = reshaped_obs.max(axis=0)
+
+        self.path_lengths = [obs.shape[0] for obs in self.observations[:10,...]]
+        self.indices = self.make_indices(self.path_lengths, self.horizon)
+        # self.normalize()
     
     def generate_representation(self,str):
         cond = tokenizer(str, return_tensors="pt").input_ids.to(device)
@@ -220,39 +275,26 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
     
     
     def __getitem__(self, idx, condition_single_input=True):
-        obs, actions, policy_id = self.dataset.__getitem__(idx)
-        # obs: horizon x agent_num (2) x H x W x C
-        # actions: horizon x 2 x action dim (1) 
-        # policy : 2 (tuple)
-    
-        obs = self.normalize_init(obs)
-        T, _, H, W, C = obs.shape # Time, Agent, Height, Width, Channel 
+        path_idx, start, end = self.indices[idx]
+        obs = self.observations[path_idx]
+        actions = self.actions[path_idx]
+        policy_id = self.policy_id[path_idx]
 
+        # obs: horizon x H x W x C
+        # actions: horizon x 2 x action_dim
 
         # Get Ego Agent Observation (Agent ID  = 0)
-        start = random.randint(1, T - self.horizon)
-        end = start + self.horizon
-        trajectories = obs[start:end, 0]
+        loseless_trajectory = obs[start:end, 0]
+        trajectories = np.array([extract_flat_features(loseless_trajectory[i]) for i in range(len(loseless_trajectory))])# [horizon x 2 x obs_dim]
+        trajectories = self.normalize_init(trajectories)
         
         # Condition on Past Trajectory or Previous Start State
-        conditions_obs = obs[start-1, 0] if condition_single_input else obs[:start, 0]
+        conditions_obs = extract_flat_features(obs[start-1, 0]) if condition_single_input else obs[:start, 0]
 
         # Condition on Partner (Agent ID = 1)
         conditions = policy_id[1]
 
-        # Create a Mask for Valid Condition Observations
-        valid_len = 1 if condition_single_input else start
-        cond_inputs = np.zeros((self.horizon, H, W, C), dtype=np.float32)
-        cond_masks = np.zeros((self.horizon), dtype=np.float32)
-        cond_inputs[-valid_len:] = conditions_obs
-        cond_masks[-valid_len:] = 1.0
-
-        # Trajectory Shape: (Horizon, H, W, C)
-        # Conditions Shape : (1)
-        # Condition Inputs: (valid_len, H, W, C)
-        # Condition Masks : (valid_len,)
-
-        return Batch(trajectories, conditions, self.dummy_cond, cond_inputs, cond_masks)
+        return Batch(trajectories, conditions, self.dummy_cond, conditions_obs)
 
 
     # def __getitem__(self, idx, eps=1e-4):
