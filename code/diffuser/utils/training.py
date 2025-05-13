@@ -733,12 +733,15 @@ class TrainerOvercooked(Trainer):
             actual_video_path = os.path.join(video_dir, f"reference_trajectory_{i}_step_{self.step}_eval.mp4")
             diff_video_path = os.path.join(video_dir, f"predicted_trajectory_{i}_step_{self.step}_eval.mp4")
 
-            actual_traj = np.array([reconstruct_spatial_tensor(self.dataset.unnormalize(actual_traj[i])) for i in range(len(actual_traj))])
-            diff_traj = np.array([reconstruct_spatial_tensor(self.dataset.unnormalize(diff_traj[i])) for i in range(len(diff_traj))])
+            actual_traj = to_np(actual_traj)
+            diff_traj = to_np(diff_traj)
+
+            actual_traj = np.array([self.dataset.reconstruct_spatial_tensor(self.dataset.unnormalize(actual_traj[i])) for i in range(len(actual_traj))])
+            diff_traj = np.array([self.dataset.reconstruct_spatial_tensor(self.dataset.unnormalize(diff_traj[i])) for i in range(len(diff_traj))])
             
             
-            self.overcooked_renderer.render_trajectory_video(to_np(actual_traj), grid, output_dir=video_dir, video_path=actual_video_path, fps=1)
-            self.overcooked_renderer.render_trajectory_video(to_np(diff_traj), grid, output_dir=video_dir, video_path=diff_video_path, fps=1)
+            self.overcooked_renderer.render_trajectory_video(actual_traj, grid, output_dir=video_dir, video_path=actual_video_path, fps=1)
+            self.overcooked_renderer.render_trajectory_video(diff_traj, grid, output_dir=video_dir, video_path=diff_video_path, fps=1)
 
         print(f"Saved Reference And Diffused Trajectory Videos.")
         avg_metrics = {f"eval_avg_{k}": np.mean(v) for k, v in metrics.items() if v}
@@ -760,7 +763,7 @@ class TrainerOvercooked(Trainer):
             for obs in traj:
                 frames.append(obs)
             grid_height, grid_width = 8, 5
-            frames = np.array([reconstruct_spatial_tensor(self.dataset.unnormalize(frames[i])) for i in range(len(frames))])
+            frames = np.array([self.dataset.reconstruct_spatial_tensor(self.dataset.unnormalize(frames[i])) for i in range(len(frames))])
             grid = self.overcooked_renderer.extract_grid_from_obs(np.zeros([grid_height, grid_width]))
             video_path = os.path.join(video_dir, f"reference_traj_{i}_step_{self.step}_agent_id_{conditions[i]}.mp4")
             self.overcooked_renderer.render_trajectory_video(frames, grid, output_dir=video_dir, video_path=video_path, fps=1)

@@ -33,13 +33,13 @@ base = {
         'renderer': 'utils.OvercookedRenderer', 
 
         ## dataset
-        'loader': 'datasets.OvercookedSequenceDataset',
+        'loader': 'datasets.OvercookedSequenceDatasetV2',
         'clip_denoised': True,
         'use_padding': True,
         'max_path_length': 400,
         'episode_length': 400,
         'chunk_length': 64,
-        'dataset_path': "data/overcooked_dataset/counter_circuit_o_1order_mini/dataset.hdf5",
+        'dataset_path': "data/overcooked_dataset/counter_circuit_o_1order_comedi/dataset.hdf5",
 
         ## serialization
         'logbase': logbase,

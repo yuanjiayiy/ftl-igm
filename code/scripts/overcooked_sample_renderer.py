@@ -419,3 +419,9 @@ class OvercookedSampleRenderer:
             plt.savefig(output_dir, bbox_inches='tight', dpi=150)
             print(f"All channels heatmap saved to {output_dir}")
         plt.close(fig)
+
+
+class OvercookedSampleRendererV2(OvercookedSampleRenderer):
+    """ Assume Features are (height, width, channels) where channels = 26; Uses Normalized Images;
+    Inspired by State Visualizor
+    """

@@ -123,28 +123,6 @@ def extract_flat_features(state):
 
     return np.array(features, dtype=np.float32)
 
-def reconstruct_spatial_tensor(flat_features, H=8, W=5, C=26):
-
-    state = np.zeros((H, W, C), dtype=np.float32)
-
-    # Extract from flat features
-    x0, y0, orient0 = map(lambda x: int(np.rint(x)), flat_features[0:3])
-    x1, y1, orient1 = map(lambda x: int(np.rint(x)), flat_features[3:6])
-
-    # Set player 0 location and orientation
-    if 0 <= x0 < H and 0 <= y0 < W:
-        state[x0, y0, PLAYER0_CHANNEL_INDEX] = 1.0
-        if 0 <= orient0 < 4:
-            state[x0, y0, PLAYER0_ORIENT_CHANNELS[orient0]] = 1.0
-
-    # Set player 1 location and orientation
-    if 0 <= x1 < H and 0 <= y1 < W:
-        state[x1, y1, PLAYER1_CHANNEL_INDEX] = 1.0
-        if 0 <= orient1 < 4:
-            state[x1, y1, PLAYER1_ORIENT_CHANNELS[orient1]] = 1.0
-
-    return state
-
 
 class OvercookedSequenceDataset(torch.utils.data.Dataset):
 
@@ -336,3 +314,24 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         past_trajectory = padded_past_trajectory.flatten().astype(np.float32)
         return past_trajectory
 
+    def reconstruct_spatial_tensor(self, flat_features, H=8, W=5, C=26):
+
+        state = np.zeros((H, W, C), dtype=np.float32)
+
+        # Extract from flat features
+        x0, y0, orient0 = map(lambda x: int(np.rint(x)), flat_features[0:3])
+        x1, y1, orient1 = map(lambda x: int(np.rint(x)), flat_features[3:6])
+
+        # Set player 0 location and orientation
+        if 0 <= x0 < H and 0 <= y0 < W:
+            state[x0, y0, PLAYER0_CHANNEL_INDEX] = 1.0
+            if 0 <= orient0 < 4:
+                state[x0, y0, PLAYER0_ORIENT_CHANNELS[orient0]] = 1.0
+
+        # Set player 1 location and orientation
+        if 0 <= x1 < H and 0 <= y1 < W:
+            state[x1, y1, PLAYER1_CHANNEL_INDEX] = 1.0
+            if 0 <= orient1 < 4:
+                state[x1, y1, PLAYER1_ORIENT_CHANNELS[orient1]] = 1.0
+
+        return state

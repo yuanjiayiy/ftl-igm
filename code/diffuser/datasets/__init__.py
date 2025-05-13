@@ -4,3 +4,4 @@ from .mocap import *
 from .highway import *
 from .robot import *
 from .overcooked import *
+from .overcookedv2 import *
