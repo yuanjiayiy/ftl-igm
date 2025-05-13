@@ -9,6 +9,7 @@ from ..utils.rendering import *
 import gymnasium as gym
 import copy
 import math
+from scripts.overcooked_sample_renderer import OvercookedSampleRenderer
 
 from transformers import T5Tokenizer, T5EncoderModel
 
@@ -196,27 +197,119 @@ class OvercookedSequenceDatasetV2(torch.utils.data.Dataset):
         """
         state = np.zeros((H, W, C), dtype=np.float32)
         ego_feature_start = 0
-        other_feature_start = 46
+        feature_length = 46
 
+        def tuple_to_feature_dict(tup):
+            keys_and_lengths = [
+                ('p0_orientation', 4),
+                ('p0_objs', 4), # "onion", "soup", "dish", "tomato"
+                ('p0_closest_onion', 2),
+                ('p0_closest_tomato', 2),
+                ('p0_closest_dish', 2),
+                ('p0_closest_soup', 2),
+                ('p0_closest_soup_n_onions', 1),
+                ('p0_closest_soup_n_tomatoes', 1),
+                ('p0_closest_serving', 2),
+                ('p0_closest_empty_counter', 2),
+                ('p0_closest_pot_0_exists', 1),
+                ('p0_closest_pot_0_is_empty', 1),
+                ('p0_closest_pot_0_is_full', 1),
+                ('p0_closest_pot_0_is_cooking', 1),
+                ('p0_closest_pot_0_is_ready', 1),
+                ('p0_closest_pot_0_num_onions', 1),
+                ('p0_closest_pot_0_num_tomatoes', 1),
+                ('p0_closest_pot_0_cook_time', 1),
+                ('p0_closest_pot_0', 2),
+                ('p0_closest_pot_1_exists', 1),
+                ('p0_closest_pot_1_is_empty', 1),
+                ('p0_closest_pot_1_is_full', 1),
+                ('p0_closest_pot_1_is_cooking', 1),
+                ('p0_closest_pot_1_is_ready', 1),
+                ('p0_closest_pot_1_num_onions', 1),
+                ('p0_closest_pot_1_num_tomatoes', 1),
+                ('p0_closest_pot_1_cook_time', 1),
+                ('p0_closest_pot_1', 2),
+                ('p0_wall_0', 1),
+                ('p0_wall_1', 1),
+                ('p0_wall_2', 1),
+                ('p0_wall_3', 1),
+            ]
+
+            assert len(tup) == 46, f"Expected a 46-tuple, got {len(tup)} elements"
+
+            result = {}
+            idx = 0
+            for key, length in keys_and_lengths:
+                result[key] = tup[idx:idx+length]
+                idx += length
+
+            return result
+        
         # Extract from flat features
+        p0_feature_dict = tuple_to_feature_dict(flat_features[ego_feature_start:ego_feature_start+feature_length])
+        p1_feature_dict = tuple_to_feature_dict(flat_features[ego_feature_start+feature_length:ego_feature_start+feature_length*2])
+
+
         x0, y0 = map(lambda x: int(np.rint(x)), flat_features[-2:])
-        orient0 = np.argmax(flat_features[ego_feature_start: ego_feature_start+4])
+        orient0 = np.argmax(p0_feature_dict['p0_orientation'])
         x1_rel_x0, y1_rel_x0 = map(lambda x: int(np.rint(x)), flat_features[-4:-2])
         x1, y1 = x0 + x1_rel_x0, y0 + y1_rel_x0
-        orient1 = np.argmax(flat_features[other_feature_start: other_feature_start+4])
-
+        orient1 = np.argmax(p1_feature_dict['p0_orientation'])
         
 
         # Set player 0 location and orientation
+        CHANNEL_FEATURE_MAP = OvercookedSampleRenderer.CHANNEL_FEATURE_MAP
         if 0 <= x0 < H and 0 <= y0 < W:
-            state[x0, y0, PLAYER0_CHANNEL_INDEX] = 1.0
+            state[x0, y0, CHANNEL_FEATURE_MAP["player_0_loc"]] = 1.0
             if 0 <= orient0 < 4:
                 state[x0, y0, PLAYER0_ORIENT_CHANNELS[orient0]] = 1.0
 
         # Set player 1 location and orientation
         if 0 <= x1 < H and 0 <= y1 < W:
-            state[x1, y1, PLAYER1_CHANNEL_INDEX] = 1.0
+            state[x1, y1, CHANNEL_FEATURE_MAP["player_1_loc"]] = 1.0
             if 0 <= orient1 < 4:
                 state[x1, y1, PLAYER1_ORIENT_CHANNELS[orient1]] = 1.0
+
+        # Set held object for player i
+        def set_held_object(feature_dict, x, y):
+            held_obj0 = feature_dict['p0_objs']
+            # assert sum(held_obj0) <= 1 # cannot held more than one object
+            if sum(held_obj0) > 1:
+                print("Error: more than one object held", held_obj0)
+            if held_obj0[0] == 1:
+                state[x, y, CHANNEL_FEATURE_MAP["onions"]] += 1.0
+            elif held_obj0[1] == 1:
+                state[x, y, CHANNEL_FEATURE_MAP["soup_done"]] += 1.0
+            elif held_obj0[2] == 1:
+                state[x, y, CHANNEL_FEATURE_MAP["dishes"]] += 1.0
+            elif held_obj0[3] == 1:
+                state[x, y, CHANNEL_FEATURE_MAP["tomatoes"]] += 1.0
+        
+        def set_closed_object(feature_dict, x, y):
+            # Set closest objects for player 0
+            # print(x,y)
+            # print(feature_dict['p0_closest_onion'])
+            # print(feature_dict['p0_closest_tomato'])
+            # print(feature_dict['p0_closest_dish'])
+            # print(feature_dict['p0_closest_soup'])
+            closest_onion = feature_dict['p0_closest_onion']
+            if closest_onion[0] != 0 and closest_onion[1] != 0:
+                state[x+closest_onion[0], y+closest_onion[1], CHANNEL_FEATURE_MAP["onions"]] += 1.0
+            closest_tomato = feature_dict['p0_closest_tomato']
+            if closest_tomato[0] != 0 and closest_tomato[1] != 0:
+                state[x+closest_tomato[0], y+closest_tomato[1], CHANNEL_FEATURE_MAP["tomatoes"]] += 1.0
+            closest_dish = feature_dict['p0_closest_dish']
+            if closest_dish[0] != 0 and closest_dish[1] != 0:
+                state[x+closest_dish[0], y+closest_dish[1], CHANNEL_FEATURE_MAP["dishes"]] += 1.0
+            closest_soup = feature_dict['p0_closest_soup']
+            if closest_soup[0] != 0 and closest_soup[1] != 0:
+                state[x+closest_soup[0], y+closest_soup[1], CHANNEL_FEATURE_MAP["soup_done"]] += 1.0
+    
+            
+        set_held_object(p0_feature_dict, x0, y0)
+        set_held_object(p1_feature_dict, x1, y1)
+        set_closed_object(p0_feature_dict, x0, y0)
+        set_closed_object(p1_feature_dict, x1, y1)
+
 
         return state
