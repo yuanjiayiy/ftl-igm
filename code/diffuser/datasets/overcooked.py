@@ -122,20 +122,21 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         self.max_path_length = args.max_path_length
         self.use_padding = args.use_padding
 
-        self.dummy_cond = np.array([-1])
+        self.dummy_cond = np.int64(0)
         self.policy_names = [policy_name_dict[self.dataset.dataset_name][agent2_policy_id]
                            for agent1_policy_id, agent2_policy_id in self.policy_id]
         self.num_embeddings, self.conditions = self.convert_to_indices(self.policy_names)
         
         
-        self.action_dim = 1
+        self.action_dim = (0)
         self.cond_dim = 8 # input to model init, T5 self.conditions
 
+        self.observation_dim = self.obs_cond_dim = (6,8,26)
         
             
-        self.observation_dim = np.prod(self.observations[0, 0, 0].shape) # every time step predict the skeleton: n joints x 3D pos
+        # self.observation_dim = np.prod(self.observations[0, 0, 0].shape) # every time step predict the skeleton: n joints x 3D pos
         # self.cond_dim = self.conditions.shape[1] # 768 T5
-        self.obs_cond_dim = np.prod(self.observations[0, 0, 0].shape) # init state: n joints x 3D pos
+        # self.obs_cond_dim = np.prod(self.observations[0, 0, 0].shape) # init state: n joints x 3D pos
         
         self.n_episodes = len(self.observations)
         
@@ -224,8 +225,11 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         # actions: horizon x 2 x action dim (1) 
         # policy : 2 (tuple)
     
-        T, _, H, W, C = obs.shape # Time, Agent, Height, Width, Channel 
         obs = self.normalize_init(obs)
+        pad_width = ((0, 0), (0, 0), (0, 0), (0, 1), (0, 0))
+        obs = np.pad(obs, pad_width, mode='constant', constant_values=0)
+        T, _, H, W, C = obs.shape # Time, Agent, Height, Width, Channel 
+
 
         # Get Ego Agent Observation (Agent ID  = 0)
         start = random.randint(1, T - self.horizon)
@@ -236,7 +240,7 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         conditions_obs = obs[start-1, 0] if condition_single_input else obs[:start, 0]
 
         # Condition on Partner (Agent ID = 1)
-        conditions = np.array([policy_id[1]])
+        conditions = policy_id[1]
 
         # Create a Mask for Valid Condition Observations
         valid_len = 1 if condition_single_input else start
@@ -291,3 +295,42 @@ class OvercookedSequenceDataset(torch.utils.data.Dataset):
         padded_past_trajectory[:unpadded_past_trajectory.shape[0], :unpadded_past_trajectory.shape[1]] = unpadded_past_trajectory
         past_trajectory = padded_past_trajectory.flatten().astype(np.float32)
         return past_trajectory
+
+class OvercookedActionSequenceDataset(OvercookedSequenceDataset):
+     def __getitem__(self, idx, condition_single_input=True):
+        obs, actions, policy_id = self.dataset.__getitem__(idx)
+        # obs: horizon x agent_num (2) x H x W x C
+        # actions: horizon x 2 x action dim (1) 
+        # policy : 2 (tuple)
+    
+        obs = self.normalize_init(obs)
+        pad_width = ((0, 0), (0, 0), (0, 0), (0, 1), (0, 0))
+        obs = np.pad(obs, pad_width, mode='constant', constant_values=0)
+        T, _, H, W, C = obs.shape # Time, Agent, Height, Width, Channel 
+
+
+        # Get Ego Agent Observation (Agent ID  = 0)
+        start = random.randint(1, T - self.horizon)
+        end = start + self.horizon
+        trajectories = actions[start:end, :]
+        
+        # Condition on Past Trajectory or Previous Start State
+        conditions_obs = obs[start-1, 0] if condition_single_input else obs[:start, 0]
+
+        # Condition on Partner (Agent ID = 1)
+        conditions = policy_id[1]
+
+        # Create a Mask for Valid Condition Observations
+        valid_len = 1 if condition_single_input else start
+        cond_inputs = np.zeros((self.horizon, H, W, C), dtype=np.float32)
+        cond_masks = np.zeros((self.horizon), dtype=np.float32)
+        cond_inputs[-valid_len:] = conditions_obs
+        cond_masks[-valid_len:] = 1.0
+
+        # Trajectory Shape: (Horizon, H, W, C)
+        # Conditions Shape : (1)
+        # Condition Inputs: (valid_len, H, W, C)
+        # Condition Masks : (valid_len,)
+
+        return Batch(trajectories, conditions, self.dummy_cond, cond_inputs, cond_masks)
+

@@ -125,7 +125,7 @@ class Trainer(object):
                 label = self.step // self.label_freq * self.label_freq
                 self.save(label)
             if self.step % self.log_freq == 0:
-                infos_str = ' | '.join([f'{key}: {val:8.4f}' for key, val in infos.items()])
+                infos_str = ' | '.join([f'{key}: {val:8.4f}' for key, val in infos.items() if type(val) in [int, float]])
                 print(f'{self.step}: {loss:8.4f} | {infos_str} | t: {timer():8.4f}', flush=True)
                 if wandb.run is not None:
                     wandb.log({
@@ -209,7 +209,7 @@ class Trainer(object):
         mean_loss = sum(losses) / len(losses)
         mean_acc = sum(accuracies) / len(accuracies)
 
-        infos_str = ' | '.join([f'{key}: {val:8.4f}' for key, val in infos.items()])
+        infos_str = ' | '.join([f'{key}: {val}' for key, val in infos.items()])
         print(f'Eval {self.step}: {mean_loss:8.4f} | {mean_acc:8.4f} | {infos_str} | t: {timer():8.4f}', flush=True)
         wandb.log({"eval_loss": mean_loss, "eval_accuracy": mean_acc})
         return losses

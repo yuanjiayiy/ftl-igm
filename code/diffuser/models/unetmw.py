@@ -66,13 +66,40 @@ class UnetMW(nn.Module):
             use_fp16=False,
             num_head_channels=32,
         )
-    def forward(self, x, x_cond, t, task_embed=None, **kwargs):
+
+    def forward(self, x, cond, time, dummy_cond=None, cond_obs=None, cond_mask=None, cond_im=None, use_dropout=True, force_dropout=False):
+        '''
+            x : [ batch x horizon x transition ] # full trajectory where first state matches cond_obs
+            cond: [ batch x cond_dim ] # text embedding
+            dummy_cond: [ batch x cond_dim ] # empty string
+            cond_obs: [ batch x transition ] # first state
+            cond_im: [ batch x C x H x W ] # first state
+        '''
+        print("x.shape", x.shape, x.dtype, "cond.shape", cond.shape, cond.dtype, "dummy_cond.shape", dummy_cond.shape, dummy_cond.dtype,
+              "cond_obs.shape", cond_obs.shape, cond_obs.dtype, "time.shape", time.shape)
+        
         f = x.shape[1] // 3
         x_cond = repeat(x_cond, 'b c h w -> b c f h w', f=f)
         x = rearrange(x, 'b (f c) h w -> b c f h w', c=3)
         x = torch.cat([x, x_cond], dim=1)
-        out = self.unet(x, t, task_embed, **kwargs)
+
+        if use_dropout:
+            if (self.mask_dist.sample(sample_shape=(dummy_cond.size(0), 1)).detach().cpu().numpy().flatten()[0] == 0.0): #10% replace with fake cond 
+                cond = dummy_cond
+        if force_dropout:
+            cond = dummy_cond #replace with fake cond
+        out = self.unet(x, time, cond)
         return rearrange(out, 'b c f h w -> b (f c) h w')
+        
+
+
+    # def forward(self, x, x_cond, t, task_embed=None, **kwargs):
+    #     f = x.shape[1] // 3
+    #     x_cond = repeat(x_cond, 'b c h w -> b c f h w', f=f)
+    #     x = rearrange(x, 'b (f c) h w -> b c f h w', c=3)
+    #     x = torch.cat([x, x_cond], dim=1)
+    #     out = self.unet(x, t, task_embed, **kwargs)
+    #     return rearrange(out, 'b c f h w -> b (f c) h w')
       
 class UnetMW_flow(nn.Module):
     def __init__(self):

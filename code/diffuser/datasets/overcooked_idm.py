@@ -108,7 +108,7 @@ class OvercookedInverseDynamicsModelDataset(torch.utils.data.Dataset):
             self.env_info = self.dataset.dset["env_info"]
             self.policy_id = self.dataset.dset["policy_id"] # path_num * num_agent (agent1_policy_name, agent2_policy_name)
             self.rewards = self.dataset.dset["rewards"] # path_num * path_length * num_agent * reward_dim (1)
-            import pdb; pdb.set_trace()
+            # import pdb; pdb.set_trace()
 
         else:
             with open(dataset_path, "rb") as input_file:
@@ -154,14 +154,14 @@ class OvercookedInverseDynamicsModelDataset(torch.utils.data.Dataset):
         '''
         self.normed_observations = copy.deepcopy(self.observations)
         self.normed_observations = (self.normed_observations - self.mins) / (self.maxs - self.mins + 1e-5) # [ 0, 1 ]
-        # self.normed_observations = (self.normed_observations * 2) - 1 # [ -1, 1 ]
+        self.normed_observations = (self.normed_observations * 2) - 1 # [ -1, 1 ]
         # self.normed_observations = [self.normed_observations[np.sum(self.path_lengths[:i]) if i>0 else 0 : np.sum(self.path_lengths[:i+1])] for i in range(len(self.path_lengths))]
 
 
     def normalize_init(self, init_states):
         """normalize init state"""
         normed_init_states = (np.array(init_states) - self.mins) / (self.maxs - self.mins + 1e-5) # [0,1]
-        # normed_init_states = (normed_init_states * 2) - 1 # [-1,1]
+        normed_init_states = (normed_init_states * 2) - 1 # [-1,1]
         return normed_init_states.astype(np.float32)
 
 

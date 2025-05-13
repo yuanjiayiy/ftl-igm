@@ -34,7 +34,7 @@ base = {
         'agent_idx': 0,
 
         ## dataset
-        'loader': 'datasets.OvercookedSequenceDataset',
+        'loader': 'datasets.OvercookedActionSequenceDataset',
         'clip_denoised': True,
         'use_padding': True,
         'max_path_length': 400,

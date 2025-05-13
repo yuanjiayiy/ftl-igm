@@ -50,7 +50,7 @@ class GaussianDiffusion(nn.Module):
         self.horizon = horizon
         self.observation_dim = observation_dim
         self.action_dim = action_dim
-        self.transition_dim = observation_dim + action_dim
+        self.transition_dim = observation_dim
         self.model = model
         self.returns_condition = returns_condition
         self.condition_guidance_w = condition_guidance_w
