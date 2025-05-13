@@ -71,18 +71,29 @@ class OvercookedSequenceDatasetV2(torch.utils.data.Dataset):
         # D (96) is player_i_features (46), other_player_features (46), player_i_rel_pos (2), player_i_abs_pos (2)
         
         self.n_episodes = len(self.observations)
-        
         B, T, N, D = self.observations.shape
+        # self.channel_mask = slice(None)
+        self.channel_mask = np.r_[0:16, D-2:D]
         flat_features = [
-            self.observations[b, t, 0]
+            self.observations[b, t, 0, self.channel_mask]
             for b in range(B)
             for t in range(T)
         ]
 
-        self.obs_cond_dim = self.observation_dim = len(flat_features[0]) # initial state dimension
+        self.obs_cond_dim = D
+        self.observation_dim = len(flat_features[0]) # initial state dimension
         reshaped_obs = np.vstack(flat_features)
         self.mins = reshaped_obs.min(axis=0)
         self.maxs = reshaped_obs.max(axis=0)
+
+        obs_cond_features = [
+            self.observations[b, t, 0]
+            for b in range(B)
+            for t in range(T)
+        ]
+        reshaped_obs_cond = np.vstack(obs_cond_features)
+        self.obs_cond_mins = reshaped_obs_cond.min(axis=0)
+        self.obs_cond_maxs = reshaped_obs_cond.max(axis=0)
 
         self.path_lengths = [obs.shape[0] for obs in self.observations[:10,...]]
         self.indices = self.make_indices(self.path_lengths, self.horizon)
@@ -118,6 +129,12 @@ class OvercookedSequenceDatasetV2(torch.utils.data.Dataset):
         # self.normed_observations = [self.normed_observations[np.sum(self.path_lengths[:i]) if i>0 else 0 : np.sum(self.path_lengths[:i+1])] for i in range(len(self.path_lengths))]
 
 
+    def normalize_obs_cond(self, obs_cond):
+        """normalize init state"""
+        normed_init_states = (np.array(obs_cond) - self.obs_cond_mins) / (self.obs_cond_maxs - self.obs_cond_mins + 1e-5) # [0,1]
+        normed_init_states = (normed_init_states * 2) - 1 # [-1,1]
+        return normed_init_states.astype(np.float32)
+    
     def normalize_init(self, init_states):
         """normalize init state"""
         normed_init_states = (np.array(init_states) - self.mins) / (self.maxs - self.mins + 1e-5) # [0,1]
@@ -172,11 +189,12 @@ class OvercookedSequenceDatasetV2(torch.utils.data.Dataset):
         # actions: horizon x 2 x action_dim
 
         # Get Ego Agent Observation (Agent ID  = 0)
-        trajectories = obs[start:end, 0]
+        trajectories = obs[start:end, 0, self.channel_mask]
         trajectories = self.normalize_init(trajectories)
         
         # Condition on Past Trajectory or Previous Start State
         conditions_obs = obs[start-1, 0] if condition_single_input else obs[:start, 0]
+        conditions_obs = self.normalize_obs_cond(conditions_obs)
 
         # Condition on Partner (Agent ID = 1)
         conditions = policy_id[1]
@@ -197,7 +215,7 @@ class OvercookedSequenceDatasetV2(torch.utils.data.Dataset):
         """
         state = np.zeros((H, W, C), dtype=np.float32)
         ego_feature_start = 0
-        feature_length = 46
+        feature_length = len(flat_features) - 2
 
         def tuple_to_feature_dict(tup):
             keys_and_lengths = [
@@ -235,26 +253,27 @@ class OvercookedSequenceDatasetV2(torch.utils.data.Dataset):
                 ('p0_wall_3', 1),
             ]
 
-            assert len(tup) == 46, f"Expected a 46-tuple, got {len(tup)} elements"
+            assert len(tup) == feature_length, f"Expected a {feature_length}-tuple, got {len(tup)} elements"
 
             result = {}
             idx = 0
             for key, length in keys_and_lengths:
-                result[key] = tup[idx:idx+length]
-                idx += length
+                if idx+length <= feature_length:
+                    result[key] = tup[idx:idx+length]
+                    idx += length
 
             return result
         
         # Extract from flat features
         p0_feature_dict = tuple_to_feature_dict(flat_features[ego_feature_start:ego_feature_start+feature_length])
-        p1_feature_dict = tuple_to_feature_dict(flat_features[ego_feature_start+feature_length:ego_feature_start+feature_length*2])
+        # p1_feature_dict = tuple_to_feature_dict(flat_features[ego_feature_start+feature_length:ego_feature_start+feature_length*2])
 
 
         x0, y0 = map(lambda x: int(np.rint(x)), flat_features[-2:])
         orient0 = np.argmax(p0_feature_dict['p0_orientation'])
-        x1_rel_x0, y1_rel_x0 = map(lambda x: int(np.rint(x)), flat_features[-4:-2])
-        x1, y1 = x0 + x1_rel_x0, y0 + y1_rel_x0
-        orient1 = np.argmax(p1_feature_dict['p0_orientation'])
+        #x1_rel_x0, y1_rel_x0 = map(lambda x: int(np.rint(x)), flat_features[-4:-2])
+        #x1, y1 = x0 + x1_rel_x0, y0 + y1_rel_x0
+        #orient1 = np.argmax(p1_feature_dict['p0_orientation'])
         
 
         # Set player 0 location and orientation
@@ -265,10 +284,10 @@ class OvercookedSequenceDatasetV2(torch.utils.data.Dataset):
                 state[x0, y0, PLAYER0_ORIENT_CHANNELS[orient0]] = 1.0
 
         # Set player 1 location and orientation
-        if 0 <= x1 < H and 0 <= y1 < W:
-            state[x1, y1, CHANNEL_FEATURE_MAP["player_1_loc"]] = 1.0
-            if 0 <= orient1 < 4:
-                state[x1, y1, PLAYER1_ORIENT_CHANNELS[orient1]] = 1.0
+        # if 0 <= x1 < H and 0 <= y1 < W:
+        #     state[x1, y1, CHANNEL_FEATURE_MAP["player_1_loc"]] = 1.0
+        #     if 0 <= orient1 < 4:
+        #         state[x1, y1, PLAYER1_ORIENT_CHANNELS[orient1]] = 1.0
 
         # Set held object for player i
         def set_held_object(feature_dict, x, y):
@@ -287,29 +306,23 @@ class OvercookedSequenceDatasetV2(torch.utils.data.Dataset):
         
         def set_closed_object(feature_dict, x, y):
             # Set closest objects for player 0
-            # print(x,y)
-            # print(feature_dict['p0_closest_onion'])
-            # print(feature_dict['p0_closest_tomato'])
-            # print(feature_dict['p0_closest_dish'])
-            # print(feature_dict['p0_closest_soup'])
-            closest_onion = feature_dict['p0_closest_onion']
-            if closest_onion[0] != 0 and closest_onion[1] != 0:
-                state[x+closest_onion[0], y+closest_onion[1], CHANNEL_FEATURE_MAP["onions"]] += 1.0
-            closest_tomato = feature_dict['p0_closest_tomato']
-            if closest_tomato[0] != 0 and closest_tomato[1] != 0:
-                state[x+closest_tomato[0], y+closest_tomato[1], CHANNEL_FEATURE_MAP["tomatoes"]] += 1.0
-            closest_dish = feature_dict['p0_closest_dish']
-            if closest_dish[0] != 0 and closest_dish[1] != 0:
-                state[x+closest_dish[0], y+closest_dish[1], CHANNEL_FEATURE_MAP["dishes"]] += 1.0
-            closest_soup = feature_dict['p0_closest_soup']
-            if closest_soup[0] != 0 and closest_soup[1] != 0:
-                state[x+closest_soup[0], y+closest_soup[1], CHANNEL_FEATURE_MAP["soup_done"]] += 1.0
-    
+            def safe_add(offset, key):
+                dx, dy = offset
+                if dx == 0 and dy == 0:
+                    return  # skip invalid/no object
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < H and 0 <= ny < W:
+                    state[nx, ny, CHANNEL_FEATURE_MAP[key]] += 1.0
             
+            safe_add(feature_dict['p0_closest_onion'], 'onions')
+            safe_add(feature_dict['p0_closest_tomato'], 'tomatoes')
+            safe_add(feature_dict['p0_closest_dish'], 'dishes')
+            safe_add(feature_dict['p0_closest_soup'], 'soup_done')
+    
         set_held_object(p0_feature_dict, x0, y0)
-        set_held_object(p1_feature_dict, x1, y1)
+        # set_held_object(p1_feature_dict, x1, y1)
         set_closed_object(p0_feature_dict, x0, y0)
-        set_closed_object(p1_feature_dict, x1, y1)
+        # set_closed_object(p1_feature_dict, x1, y1)
 
 
         return state
