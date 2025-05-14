@@ -743,6 +743,11 @@ class TrainerOvercooked(Trainer):
             self.overcooked_renderer.render_trajectory_video(actual_traj, grid, output_dir=video_dir, video_path=actual_video_path, fps=1)
             self.overcooked_renderer.render_trajectory_video(diff_traj, grid, output_dir=video_dir, video_path=diff_video_path, fps=1)
 
+            wandb.log({
+                "predicted_traj": wandb.Video(diff_video_path, fps=4, format="mp4"),
+                "reference_traj": wandb.Video(actual_video_path, fps=4, format="mp4"),
+            })
+
         print(f"Saved Reference And Diffused Trajectory Videos.")
         avg_metrics = {f"eval_avg_{k}": np.mean(v) for k, v in metrics.items() if v}
         print(f"Evaluation Metrics (Step {self.step}): {avg_metrics}")  
