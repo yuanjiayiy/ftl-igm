@@ -296,15 +296,9 @@ class OvercookedSequenceDatasetV3(OvercookedSequenceDatasetV2):
         def set_held_object(x, y):
             
             held_obj0 = np.argmax(p0_feature_dict['p0_objs'])
-            if held_obj0 == 1:
-                state[x, y, CHANNEL_FEATURE_MAP["onions"]] += 1.0
-            elif held_obj0 == 1:
-                state[x, y, CHANNEL_FEATURE_MAP["soup_done"]] += 1.0
-            elif held_obj0 == 1:
-                state[x, y, CHANNEL_FEATURE_MAP["dishes"]] += 1.0
-            elif held_obj0 == 1:
-                state[x, y, CHANNEL_FEATURE_MAP["tomatoes"]] += 1.0
-    
+            if held_obj0 < len(IDX_TO_OBJ):
+                state[x, y, CHANNEL_FEATURE_MAP[IDX_TO_OBJ[held_obj0]]] += 1.0
+                
         set_held_object(x0, y0)
 
 
