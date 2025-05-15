@@ -128,7 +128,7 @@ class OvercookedSequenceDatasetV3(OvercookedSequenceDatasetV2):
         self.obs_cond_mins = reshaped_obs_cond.min(axis=0)
         self.obs_cond_maxs = reshaped_obs_cond.max(axis=0)
 
-        self.path_lengths = [obs.shape[0] for obs in self.observations[:10,...]]
+        self.path_lengths = [obs.shape[0] for obs in self.observations]
         self.indices = self.make_indices(self.path_lengths, self.horizon)
         # import pdb; pdb.set_trace()
         # self.normalize()
@@ -187,7 +187,7 @@ class OvercookedSequenceDatasetV3(OvercookedSequenceDatasetV2):
         ret = x + 1 #[-1,1]-->[0,2]
         ret /= 2 #[0,2]-->[0,1]
         ret = ret * (maxs - mins + 1e-5) + mins #[min,max]
-        return np.rint(ret).astype(int)
+        return ret
 
 
 
@@ -240,3 +240,72 @@ class OvercookedSequenceDatasetV3(OvercookedSequenceDatasetV2):
         conditions = policy_id[1]
 
         return Batch(trajectories, conditions, self.dummy_cond, conditions_obs)
+
+    def reconstruct_spatial_tensor(self, flat_features, H=8, W=5, C=26):
+        """
+        Reconstructs the spatial tensor from the flat features.
+        Args:
+            flat_features: The flat features to reconstruct. 96 = 46 + 46 + 2 + 2, dtype: float
+            H: Height of the spatial tensor.
+            W: Width of the spatial tensor.
+            C: Number of channels in the spatial tensor.
+        Returns:
+            The reconstructed spatial tensor.
+        """
+        state = np.zeros((H, W, C), dtype=np.float32)
+        ego_feature_start = 0
+        feature_length = len(flat_features) - 2
+
+        def tuple_to_feature_dict(tup):
+            keys_and_lengths = [
+                ('p0_orientation', 4),
+                ('p0_objs', 5), # "onion", "soup", "dish", "tomato", "no object"
+            ]
+
+            assert len(tup) == feature_length, f"Expected a {feature_length}-tuple, got {len(tup)} elements"
+
+            result = {}
+            idx = 0
+            for key, length in keys_and_lengths:
+                if idx+length <= feature_length:
+                    result[key] = tup[idx:idx+length]
+                    idx += length
+
+            return result
+        
+        # Extract from flat features
+        p0_feature_dict = tuple_to_feature_dict(flat_features[ego_feature_start:ego_feature_start+feature_length])
+        # p1_feature_dict = tuple_to_feature_dict(flat_features[ego_feature_start+feature_length:ego_feature_start+feature_length*2])
+
+
+        x0, y0 = map(lambda x: int(np.rint(x)), flat_features[-2:])
+        orient0 = np.argmax(p0_feature_dict['p0_orientation'])
+        #x1_rel_x0, y1_rel_x0 = map(lambda x: int(np.rint(x)), flat_features[-4:-2])
+        #x1, y1 = x0 + x1_rel_x0, y0 + y1_rel_x0
+        #orient1 = np.argmax(p1_feature_dict['p0_orientation'])
+        
+
+        # Set player 0 location and orientation
+        CHANNEL_FEATURE_MAP = OvercookedSampleRenderer.CHANNEL_FEATURE_MAP
+        if 0 <= x0 < H and 0 <= y0 < W:
+            state[x0, y0, CHANNEL_FEATURE_MAP["player_0_loc"]] = 1.0
+            if 0 <= orient0 < 4:
+                state[x0, y0, PLAYER0_ORIENT_CHANNELS[orient0]] = 1.0
+
+        # Set held object for player i
+        def set_held_object(x, y):
+            
+            held_obj0 = np.argmax(p0_feature_dict['p0_objs'])
+            if held_obj0 == 1:
+                state[x, y, CHANNEL_FEATURE_MAP["onions"]] += 1.0
+            elif held_obj0 == 1:
+                state[x, y, CHANNEL_FEATURE_MAP["soup_done"]] += 1.0
+            elif held_obj0 == 1:
+                state[x, y, CHANNEL_FEATURE_MAP["dishes"]] += 1.0
+            elif held_obj0 == 1:
+                state[x, y, CHANNEL_FEATURE_MAP["tomatoes"]] += 1.0
+    
+        set_held_object(x0, y0)
+
+
+        return state
