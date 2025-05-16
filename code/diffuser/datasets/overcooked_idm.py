@@ -3,6 +3,8 @@ import numpy as np
 import torch
 import pickle
 from collections import namedtuple
+
+from diffuser.models.inverse_dynamics import InverseDynamicsModel
 from ..utils.rendering import *
 import gymnasium as gym
 import copy
@@ -214,6 +216,14 @@ class OvercookedInverseDynamicsModelDataset(torch.utils.data.Dataset):
             next_observation=next_observation,
             action=self.actions[path, start, self.agent_idx].astype(np.int64),
         )
+
+        # model_path = "/Users/carrie/Downloads/13_state_800000.pt"
+        # idm = torch.load(model_path, map_location=torch.device('cpu'))
+        # idm_model = InverseDynamicsModel(num_actions=6)
+        # idm_model.load_state_dict(idm['model'])
+        # idm_model.eval()
+        
+        # pred_act = idm_model(to_tensor([observation]), to_tensor([next_observation]))
+        # print(pred_act, batch.action)
+        
         return batch
-
-
