@@ -284,7 +284,7 @@ def full_horizon_eval(args, diffusion, dataset, policy, device, show_samples=Fal
             pickle.dump(metrics, f)
         
         for e in range(n_envs):
-            frames = rearrange(frames, 't w h c -> t h w c')
+            frames[e] = rearrange(frames[e], 't w h c -> t h w c')
             grid = renderer.extract_grid_from_obs(frames[e][0])
             env_dir = osp.join(video_dir, f"episode_{episode+1}_env_{e+1}")
             os.makedirs(env_dir, exist_ok=True)
@@ -345,7 +345,7 @@ if __name__ == "__main__":
         args.diffusion_loadpath,
         epoch="latest",
         seed=None,
-        device=device,
+        device=None,
         load_dataset=True,
     )
     diffusion = diffusion_experiment.diffusion
