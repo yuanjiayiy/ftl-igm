@@ -231,8 +231,8 @@ class OvercookedSampleRenderer:
             obs = self.normalize_obs(obs)
         
         self._render_grid(surface, grid)
-        # self._render_objects(surface, obs, grid, eps)
-        # self._render_cooking_timers(surface, obs, grid, eps)
+        self._render_objects(surface, obs, grid, eps)
+        self._render_cooking_timers(surface, obs, grid, eps)
         self._render_players(surface, obs, eps)
 
         return surface

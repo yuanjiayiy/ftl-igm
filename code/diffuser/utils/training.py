@@ -169,6 +169,7 @@ class Trainer(object):
         }
         savepath = os.path.join(self.logdir, f'state_{epoch}.pt')
         torch.save(data, savepath)
+        wandb.save(savepath, base_path=self.logdir)
         print(f'[ utils/training ] Saved model to {savepath}', flush=True)
         
 
@@ -177,7 +178,7 @@ class Trainer(object):
             loads model and ema from disk
         '''
         loadpath = os.path.join(self.logdir, f'state_{epoch}.pt')
-        data = torch.load(loadpath)
+        data = torch.load(loadpath, map_location=torch.device('cpu'))
 
         self.step = data['step']
         self.model.load_state_dict(data['model'])
