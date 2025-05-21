@@ -213,7 +213,10 @@ def full_horizon_eval(args, base_model, dataset, policy, device, show_samples=Fa
             assert condition_obs.shape[-1] == 1040 # Double Check
 
             with th.no_grad():
-                samples = base_model(condition_obs, cond)
+                action_probs = base_model(condition_obs, cond)
+                action = torch.multinomial(action_probs, num_samples=1)  # Stochastic sampling
+                # OR
+                # action = torch.argmax(action_probs)  # Greedy selection
 
         
             # We begin with the first ego obs (first obs of the environment)
@@ -227,8 +230,7 @@ def full_horizon_eval(args, base_model, dataset, policy, device, show_samples=Fa
                 step_actions = np.zeros((n_envs, 2, 1), dtype=np.int64)
 
                 for env_i in range(n_envs):
-                    one_hot_action = samples[env_i].reshape(-1, dataset.base_dataset.n_actions)[t]
-                    ego_action = np.argmax(one_hot_action)
+                    ego_action = action[env_i][0]
                     step_actions[env_i, 0] = to_np(ego_action)
 
                         
