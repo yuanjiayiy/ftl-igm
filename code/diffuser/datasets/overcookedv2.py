@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import pickle
 from collections import namedtuple
+import yaml
 
 from diffuser.datasets.overcooked import PLAYER0_CHANNEL_INDEX, PLAYER0_ORIENT_CHANNELS, PLAYER1_CHANNEL_INDEX, PLAYER1_ORIENT_CHANNELS
 from ..utils.rendering import *
@@ -21,6 +22,7 @@ from transformers import T5Tokenizer, T5EncoderModel
 # for example, "counter_circuit_o_1order_mep mep2_final" -> 00000202
 policy_name_dict = {"counter_circuit_o_1order_comedi": 
                     ['bc_test', 'bc_test']}
+population_yaml_path = "/Users/carrie/ftl-igm/code/data/overcooked_dataset/counter_circuit_o_1order_test/sp_vs_best_r_sp_config.yml"
 
 
 def to_tensor(x, dtype=torch.float, device='cpu'):
@@ -58,9 +60,8 @@ class OvercookedSequenceDatasetV2(torch.utils.data.Dataset):
         self.max_path_length = args.max_path_length
         self.use_padding = args.use_padding
 
-        self.dummy_cond = np.int64(0)
-        self.policy_names = [policy_name_dict[self.dataset.dataset_name][agent2_policy_id]
-                           for agent1_policy_id, agent2_policy_id in self.policy_id]
+        self.policy_names = list(yaml.load(open(population_yaml_path), yaml.Loader))
+        self.dummy_cond = np.int64(len(self.policy_names))
         self.num_embeddings, self.conditions = self.convert_to_indices(self.policy_names)
         
         
@@ -71,11 +72,11 @@ class OvercookedSequenceDatasetV2(torch.utils.data.Dataset):
         # D (96) is player_i_features (46), other_player_features (46), player_i_rel_pos (2), player_i_abs_pos (2)
         
         self.n_episodes = len(self.observations)
-        B, T, N, D = self.observations.shape
-        # self.channel_mask = slice(None)
-        self.channel_mask = np.r_[0:16, D-2:D]
+        B, T, D = self.observations.shape
+        self.channel_mask = slice(None)
+        # self.channel_mask = np.r_[0:16, D-2:D]
         flat_features = [
-            self.observations[b, t, 0, self.channel_mask]
+            self.observations[b, t, self.channel_mask]
             for b in range(B)
             for t in range(T)
         ]
@@ -87,7 +88,7 @@ class OvercookedSequenceDatasetV2(torch.utils.data.Dataset):
         self.maxs = reshaped_obs.max(axis=0)
 
         obs_cond_features = [
-            self.observations[b, t, 0]
+            self.observations[b, t]
             for b in range(B)
             for t in range(T)
         ]
@@ -95,9 +96,8 @@ class OvercookedSequenceDatasetV2(torch.utils.data.Dataset):
         self.obs_cond_mins = reshaped_obs_cond.min(axis=0)
         self.obs_cond_maxs = reshaped_obs_cond.max(axis=0)
 
-        self.path_lengths = [obs.shape[0] for obs in self.observations[:10,...]]
+        self.path_lengths = [obs.shape[0] for obs in self.observations]
         self.indices = self.make_indices(self.path_lengths, self.horizon)
-        # import pdb; pdb.set_trace()
         # self.normalize()
     
     def generate_representation(self,str):
@@ -189,11 +189,11 @@ class OvercookedSequenceDatasetV2(torch.utils.data.Dataset):
         # actions: horizon x 2 x action_dim
 
         # Get Ego Agent Observation (Agent ID  = 0)
-        trajectories = obs[start:end, 0, self.channel_mask]
+        trajectories = obs[start:end, self.channel_mask]
         trajectories = self.normalize_init(trajectories)
         
         # Condition on Past Trajectory or Previous Start State
-        conditions_obs = obs[start-1, 0] if condition_single_input else obs[:start, 0]
+        conditions_obs = obs[start-1] if condition_single_input else obs[:start]
         conditions_obs = self.normalize_obs_cond(conditions_obs)
 
         # Condition on Partner (Agent ID = 1)

@@ -15,7 +15,9 @@ if __name__ == "__main__":
     project="overcooked_idm",
     entity="social-rl",
     name="overcooked_idm",
-    config=args)
+    config=args,
+    mode="disabled"
+    )
 
     # dataset
     dataset_config = utils.Config(

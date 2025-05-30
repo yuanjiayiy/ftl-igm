@@ -83,8 +83,9 @@ class TemporalUnet(nn.Module):
             nn.Mish(),
             nn.Linear(dim * 4, dim),
         )
+        self.num_embeddings = 68
 
-        self.embedding = nn.Embedding(num_embeddings=8, embedding_dim=cond_dim) # num_embeddings is a placeholder
+        self.embedding = nn.Embedding(num_embeddings=self.num_embeddings, embedding_dim=cond_dim) # num_embeddings is a placeholder
 
         self.returns_condition = returns_condition
         self.condition_dropout = condition_dropout
